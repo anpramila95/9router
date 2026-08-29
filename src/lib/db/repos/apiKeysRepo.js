@@ -36,6 +36,53 @@ export async function getApiKeys() {
   return rows.map(rowToKey);
 }
 
+export async function getApiKeysWithUsage() {
+  const db = await getAdapter();
+  const rows = db.all(`SELECT * FROM apiKeys ORDER BY createdAt ASC`);
+  const keys = rows.map(rowToKey);
+
+  const now = Date.now();
+  const cutoffToday = new Date(new Date().setHours(0, 0, 0, 0)).toISOString();
+  const cutoff7d = new Date(now - 7 * 24 * 3600 * 1000).toISOString();
+  const cutoff30d = new Date(now - 30 * 24 * 3600 * 1000).toISOString();
+
+  // Aggregate stats per apiKey
+  const usageMap = {};
+  const statsRows = db.all(`
+    SELECT
+      apiKey,
+      SUM(CASE WHEN timestamp >= ? THEN promptTokens + completionTokens ELSE 0 END) AS tokensToday,
+      SUM(CASE WHEN timestamp >= ? THEN promptTokens + completionTokens ELSE 0 END) AS tokens7d,
+      SUM(CASE WHEN timestamp >= ? THEN promptTokens + completionTokens ELSE 0 END) AS tokens30d,
+      SUM(CASE WHEN (endpoint LIKE '%images%' OR endpoint LIKE '%image%') THEN 1 ELSE 0 END) AS imagesTotal,
+      SUM(CASE WHEN (endpoint LIKE '%videos%' OR endpoint LIKE '%video%') THEN 1 ELSE 0 END) AS videosTotal
+    FROM usageHistory
+    WHERE apiKey IS NOT NULL AND apiKey != ''
+    GROUP BY apiKey
+  `, [cutoffToday, cutoff7d, cutoff30d]);
+
+  for (const r of statsRows) {
+    usageMap[r.apiKey] = {
+      tokensToday: Number(r.tokensToday || 0),
+      tokens7d: Number(r.tokens7d || 0),
+      tokens30d: Number(r.tokens30d || 0),
+      imagesTotal: Number(r.imagesTotal || 0),
+      videosTotal: Number(r.videosTotal || 0),
+    };
+  }
+
+  return keys.map((k) => ({
+    ...k,
+    usage: usageMap[k.key] || {
+      tokensToday: 0,
+      tokens7d: 0,
+      tokens30d: 0,
+      imagesTotal: 0,
+      videosTotal: 0,
+    },
+  }));
+}
+
 export async function getApiKeyById(id) {
   const db = await getAdapter();
   const row = db.get(`SELECT * FROM apiKeys WHERE id = ?`, [id]);

@@ -1147,6 +1147,32 @@ export default function APIPageClient({ machineId }) {
                   <p className="text-xs text-text-muted mt-1">
                     Created {new Date(key.createdAt).toLocaleDateString()}
                   </p>
+                  {key.usage && (
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-xs">
+                      <span className="text-text-muted flex items-center gap-1">
+                        <span className="material-symbols-outlined text-[13px] text-primary">data_usage</span>
+                        <span>Today: <strong className="text-text-main">{formatLimit(key.usage.tokensToday)}</strong> tokens</span>
+                      </span>
+                      <span className="text-text-muted">
+                        7D: <strong className="text-text-main">{formatLimit(key.usage.tokens7d)}</strong>
+                      </span>
+                      <span className="text-text-muted">
+                        30D: <strong className="text-text-main">{formatLimit(key.usage.tokens30d)}</strong>
+                      </span>
+                      {key.usage.imagesTotal > 0 && (
+                        <span className="text-purple-400 font-medium flex items-center gap-0.5">
+                          <span>{key.usage.imagesTotal}</span>
+                          <span className="text-[10px]">imgs</span>
+                        </span>
+                      )}
+                      {key.usage.videosTotal > 0 && (
+                        <span className="text-pink-400 font-medium flex items-center gap-0.5">
+                          <span>{key.usage.videosTotal}</span>
+                          <span className="text-[10px]">vids</span>
+                        </span>
+                      )}
+                    </div>
+                  )}
                   <p className="text-xs text-text-muted mt-1">
                     {key.limit5h != null || key.limit7d != null || key.limit30d != null || key.limitImageDaily != null || key.limitVideoDaily != null
                       ? `Limits: ${[
