@@ -74,7 +74,7 @@ async function handleSingleModelTts(body, modelStr, responseFormat, language, st
 
   // noAuth providers — no credential needed
   if (!CREDENTIALED_PROVIDERS.has(provider)) {
-    const result = await handleTtsCore({ provider, model, input: body.input, responseFormat, language, style });
+    const result = await handleTtsCore({ provider, model, input: body.input, voice: body.voice, responseFormat, language, style });
     if (result.success) return result.response;
     return errorResponse(result.status || HTTP_STATUS.BAD_GATEWAY, result.error || "TTS failed");
   }
@@ -99,7 +99,7 @@ async function handleSingleModelTts(body, modelStr, responseFormat, language, st
 
     log.info("AUTH", `\x1b[32mUsing ${provider} account: ${credentials.connectionName}\x1b[0m`);
 
-    const result = await handleTtsCore({ provider, model, input: body.input, credentials, responseFormat, language, style });
+    const result = await handleTtsCore({ provider, model, input: body.input, voice: body.voice, credentials, responseFormat, language, style });
 
     if (result.success) return result.response;
 

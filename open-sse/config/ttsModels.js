@@ -48,6 +48,19 @@ const MIMO_VOICES = [
   { id: "Dean",          name: "Dean" },
 ].map((v) => ({ type: "tts", ...v }));
 
+// GPT2API voices
+const GPT2API_VOICES = [
+  { id: "orbit",   name: "Spruce (orbit)",   description: "Calm and affirming" },
+  { id: "fathom",  name: "Arbor (fathom)",   description: "Easygoing and versatile" },
+  { id: "maple",   name: "Maple (maple)",    description: "Cheerful and candid" },
+  { id: "vale",    name: "Vale (vale)",     description: "Bright and inquisitive" },
+  { id: "juniper", name: "Juniper (juniper)", description: "Open and upbeat" },
+  { id: "glimmer", name: "Sol (glimmer)",    description: "Savvy and relaxed" },
+  { id: "cove",    name: "Cove (cove)",     description: "Composed and direct" },
+  { id: "breeze",  name: "Breeze (breeze)",   description: "Animated and earnest" },
+  { id: "ember",   name: "Ember (ember)",    description: "Confident and optimistic" },
+].map((v) => ({ type: "tts", ...v }));
+
 // ── TTS Config (config-driven, single source of truth) ─────────────────────
 export const TTS_MODELS_CONFIG = {
   openai: {
@@ -129,6 +142,15 @@ export const TTS_MODELS_CONFIG = {
     voices: {
       "mimo-v2.5-tts": MIMO_VOICES,
     },
+  },
+  gpt2api: {
+    models: [
+      { id: "tts-hd", name: "TTS HD", type: "tts" },
+    ],
+    voices: {
+      "tts-hd": GPT2API_VOICES,
+    },
+    allVoices: GPT2API_VOICES,
   },
 };
 

@@ -65,6 +65,12 @@ export const KIND_EXAMPLE_CONFIG = {
     defaultInput: "A serene lake at sunset",
     bodyKey: "prompt",
     defaultResponse: `{\n  "data": [\n    { "url": "..." }\n  ]\n}`,
+    extraFields: [
+      { key: "aspectRatio", label: "Aspect Ratio", type: "select", default: "16:9", options: ["16:9", "9:16", "1:1"] },
+      { key: "mode", label: "Mode", type: "select", default: "text-to-video", options: ["text-to-video", "image-to-video", "reference-to-video"] },
+      { key: "videoLength", label: "Duration (s)", type: "number", default: 10, min: 5, max: 60 },
+      { key: "resolutionName", label: "Resolution", type: "select", default: "720p", options: ["720p", "1080p", "480p"] },
+    ],
   },
   music: {
     inputLabel: "Prompt",

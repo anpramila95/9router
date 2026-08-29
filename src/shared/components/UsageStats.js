@@ -131,7 +131,26 @@ function groupDataByKey(data, keyField) {
     if (!groups[gk]) {
       groups[gk] = {
         groupKey: gk,
-        summary: { requests: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0, totalTokens: 0, cost: 0, inputCost: 0, cachedCost: 0, outputCost: 0, lastUsed: null, pending: 0 },
+        summary: {
+          requests: 0,
+          promptTokens: 0,
+          completionTokens: 0,
+          cachedTokens: 0,
+          totalTokens: 0,
+          cost: 0,
+          inputCost: 0,
+          cachedCost: 0,
+          outputCost: 0,
+          lastUsed: null,
+          pending: 0,
+          imageCount: 0,
+          videoCount: 0,
+          limitImageDaily: item.limitImageDaily ?? null,
+          limitVideoDaily: item.limitVideoDaily ?? null,
+          limit5h: item.limit5h ?? null,
+          limit7d: item.limit7d ?? null,
+          limit30d: item.limit30d ?? null,
+        },
         items: [],
       };
     }
@@ -146,6 +165,8 @@ function groupDataByKey(data, keyField) {
     s.cachedCost += item.cachedCost || 0;
     s.outputCost += item.outputCost || 0;
     s.pending += item.pending || 0;
+    s.imageCount += item.imageCount || 0;
+    s.videoCount += item.videoCount || 0;
     if (item.lastUsed && (!s.lastUsed || new Date(item.lastUsed) > new Date(s.lastUsed))) {
       s.lastUsed = item.lastUsed;
     }
@@ -173,6 +194,8 @@ const API_KEY_COLUMNS = [
   { field: "keyName", label: "API Key Name" },
   { field: "rawModel", label: "Model" },
   { field: "provider", label: "Provider" },
+  { field: "imageCount", label: "Images", align: "right" },
+  { field: "videoCount", label: "Videos", align: "right" },
   { field: "requests", label: "Requests", align: "right" },
   { field: "lastUsed", label: "Last Used", align: "right" },
 ];
@@ -316,7 +339,89 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
     router.replace(`?${params.toString()}`, { scroll: false });
   }, [searchParams, router]);
 
-  // Compute active table data
+  const [selectedFilterApiKey, setSelectedFilterApiKey] = useState("");
+  const [selectedFilterModel, setSelectedFilterModel] = useState("");
+
+  const [allApiKeysList, setAllApiKeysList] = useState([]);
+
+  // Fetch all registered API keys so filter dropdown shows all keys even before first request
+  useEffect(() => {
+    fetch("/api/keys")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.keys) setAllApiKeysList(d.keys);
+      })
+      .catch(() => {});
+  }, []);
+
+  const apiKeyOptions = useMemo(() => {
+    const map = new Map();
+    // 1. Add all configured API keys
+    allApiKeysList.forEach((k) => {
+      const keyVal = k.key ? `${k.key.slice(0, 8)}...` : k.id;
+      map.set(keyVal, k.name ? `${k.name} (${keyVal})` : keyVal);
+    });
+    // 2. Add any keys found in stats history
+    if (stats?.byApiKey) {
+      Object.values(stats.byApiKey).forEach((item) => {
+        const keyVal = item.apiKeyKey || item.keyName;
+        if (!map.has(keyVal)) {
+          map.set(keyVal, item.keyName || keyVal);
+        }
+      });
+    }
+    return Array.from(map.entries()).map(([value, label]) => ({ value, label }));
+  }, [stats, allApiKeysList]);
+
+  const modelOptions = useMemo(() => {
+    const set = new Set();
+    if (stats?.byModel) {
+      Object.values(stats.byModel).forEach((item) => {
+        if (item.rawModel) set.add(item.rawModel);
+      });
+    }
+    return Array.from(set).sort().map((m) => ({ value: m, label: m }));
+  }, [stats]);
+
+  const overviewStats = useMemo(() => {
+    if (!stats) return null;
+    if (!selectedFilterApiKey && !selectedFilterModel) return stats;
+
+    let totalRequests = 0;
+    let totalPromptTokens = 0;
+    let totalCompletionTokens = 0;
+    let totalCachedTokens = 0;
+    let totalCost = 0;
+    let totalImages = 0;
+    let totalVideos = 0;
+
+    // Filter from byApiKey entries for maximum granularity
+    const items = Object.values(stats.byApiKey || {});
+    items.forEach((item) => {
+      const matchKey = !selectedFilterApiKey || item.apiKeyKey === selectedFilterApiKey || item.keyName === selectedFilterApiKey;
+      const matchModel = !selectedFilterModel || item.rawModel === selectedFilterModel;
+      if (matchKey && matchModel) {
+        totalRequests += item.requests || 0;
+        totalPromptTokens += item.promptTokens || 0;
+        totalCompletionTokens += item.completionTokens || 0;
+        totalCachedTokens += item.cachedTokens || 0;
+        totalCost += item.cost || 0;
+        totalImages += item.imageCount || 0;
+        totalVideos += item.videoCount || 0;
+      }
+    });
+
+    return {
+      ...stats,
+      totalRequests,
+      totalPromptTokens,
+      totalCompletionTokens,
+      totalCachedTokens,
+      totalCost,
+      totalImages,
+      totalVideos,
+    };
+  }, [stats, selectedFilterApiKey, selectedFilterModel]);
   const activeTableConfig = useMemo(() => {
     if (!stats) return null;
     switch (tableView) {
@@ -385,10 +490,30 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
           groupedData: groupDataByKey(sortData(stats.byApiKey, {}, sortBy, sortOrder), "keyName"),
           storageKey: "usage-stats:expanded-apikeys",
           emptyMessage: "No API key usage recorded yet.",
+          renderGroupLabel: (group) => {
+            const s = group.summary;
+            const limits = [
+              s.limit5h != null ? `${fmt(s.limit5h)}/5h` : null,
+              s.limit7d != null ? `${fmt(s.limit7d)}/7d` : null,
+              s.limit30d != null ? `${fmt(s.limit30d)}/30d` : null,
+              s.limitImageDaily != null ? `${s.limitImageDaily} imgs/day` : null,
+              s.limitVideoDaily != null ? `${s.limitVideoDaily} vids/day` : null,
+            ].filter(Boolean);
+            return (
+              <div className="flex flex-col min-w-0">
+                <span className="font-medium">{group.groupKey}</span>
+                <span className="text-[11px] text-text-muted">
+                  {limits.length ? `Limits: ${limits.join(" · ")}` : "No limit"}
+                </span>
+              </div>
+            );
+          },
           renderSummaryCells: (group) => (
             <>
               <td className="px-6 py-3 text-text-muted">—</td>
               <td className="px-6 py-3 text-text-muted">—</td>
+              <td className="px-6 py-3 text-right font-medium text-purple-400">{group.summary.imageCount > 0 ? `${group.summary.imageCount} 🖼️` : "—"}</td>
+              <td className="px-6 py-3 text-right font-medium text-pink-400">{group.summary.videoCount > 0 ? `${group.summary.videoCount} 🎬` : "—"}</td>
               <td className="px-6 py-3 text-right">{fmt(group.summary.requests)}</td>
               <td className="px-6 py-3 text-right text-text-muted whitespace-nowrap">{fmtTime(group.summary.lastUsed)}</td>
             </>
@@ -398,6 +523,8 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
               <td className="px-6 py-3 font-medium">{item.keyName}</td>
               <td className="px-6 py-3">{item.rawModel}</td>
               <td className="px-6 py-3"><Badge variant="neutral" size="sm">{item.provider}</Badge></td>
+              <td className="px-6 py-3 text-right text-text-muted">{item.imageCount > 0 ? item.imageCount : "—"}</td>
+              <td className="px-6 py-3 text-right text-text-muted">{item.videoCount > 0 ? item.videoCount : "—"}</td>
               <td className="px-6 py-3 text-right">{fmt(item.requests)}</td>
               <td className="px-6 py-3 text-right text-text-muted whitespace-nowrap">{fmtTime(item.lastUsed)}</td>
             </>
@@ -465,7 +592,19 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
       )}
 
       {/* Overview cards */}
-      {loading ? spinner : <OverviewCards stats={stats} />}
+      {loading ? spinner : (
+        <OverviewCards
+          stats={overviewStats}
+          selectedApiKey={selectedFilterApiKey}
+          selectedModel={selectedFilterModel}
+          apiKeyOptions={apiKeyOptions}
+          modelOptions={modelOptions}
+          onFilterChange={({ apiKey: k, model: m }) => {
+            setSelectedFilterApiKey(k);
+            setSelectedFilterModel(m);
+          }}
+        />
+      )}
 
       {/* Provider topology + Recent Requests */}
       {loading ? spinner : (
@@ -513,7 +652,7 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
         </div>
         {loading ? spinner : activeTableConfig && (
           <UsageTable
-            title=""
+            title={TABLE_OPTIONS.find((t) => t.value === tableView)?.label || "Usage Table"}
             columns={activeTableConfig.columns}
             groupedData={activeTableConfig.groupedData}
             tableType={tableView}
@@ -522,8 +661,9 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
             onToggleSort={toggleSort}
             viewMode={viewMode}
             storageKey={activeTableConfig.storageKey}
-            renderSummaryCells={activeTableConfig.renderSummaryCells}
+            renderGroupLabel={activeTableConfig.renderGroupLabel}
             renderDetailCells={activeTableConfig.renderDetailCells}
+            renderSummaryCells={activeTableConfig.renderSummaryCells}
             emptyMessage={activeTableConfig.emptyMessage}
           />
         )}

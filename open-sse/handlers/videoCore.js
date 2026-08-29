@@ -30,9 +30,58 @@ export function sanitizeSecrets(text, credentials = null) {
   return out;
 }
 
-function buildUpstreamUrl(config, action, requestId) {
-  const base = config.baseUrl.replace(/\/$/, "");
+function resolveBase(credentials, config) {
+  const raw = credentials?.providerSpecificData?.baseUrl || credentials?.baseUrl || config?.baseUrl || "http://localhost:3000";
+  return String(raw).replace(/\/+$/, "");
+}
+
+function buildUpstreamUrl(config, action, requestId, provider, model, credentials) {
+  const base = resolveBase(credentials, config);
+  if (provider === "ai2w" || provider === "aivideoworkflow") {
+    if (requestId) {
+      return `${base}/api/labs/poll-batch`;
+    }
+    const m = (model || "").toLowerCase();
+    if (m === "grok" || m === "grok-video") {
+      return `${base}/api/grok/generate-video`;
+    }
+    return `${base}/api/labs/generate-video`;
+  }
   return requestId ? `${base}/${encodeURIComponent(requestId)}` : `${base}/${action}`;
+}
+
+function buildAi2wRequestBody(action, requestId, rawBody, model) {
+  if (requestId) {
+    return JSON.stringify({ pollingId: requestId });
+  }
+  let parsed = {};
+  if (typeof rawBody === "string") {
+    try { parsed = JSON.parse(rawBody); } catch {}
+  } else if (rawBody && typeof rawBody === "object") {
+    parsed = rawBody;
+  }
+  const m = (model || parsed.model || "").toLowerCase();
+  const aspectRatio = parsed.aspectRatio || parsed.aspect_ratio || "16:9";
+  const images = Array.isArray(parsed.images) ? parsed.images : parsed.image ? [parsed.image] : [];
+
+  if (m === "grok" || m === "grok-video") {
+    return JSON.stringify({
+      prompt: parsed.prompt,
+      images,
+      aspectRatio,
+      videoLength: parsed.videoLength || parsed.duration || 10,
+      resolutionName: parsed.resolutionName || parsed.resolution || "720p",
+    });
+  }
+
+  // veo3 / default labs video
+  return JSON.stringify({
+    prompt: parsed.prompt,
+    aspectRatio,
+    mode: parsed.mode || (images.length ? "image-to-video" : "text-to-video"),
+    images,
+    model: "veo-3.1-lite-relax-ultra",
+  });
 }
 
 function buildHeaders({ token, contentType, idempotencyKey }) {
@@ -78,6 +127,7 @@ export async function handleVideoProxyCore({
   action = null,
   requestId = null,
   rawBody = null,
+  model = null,
   contentType = null,
   idempotencyKey = null,
   credentials,
@@ -94,15 +144,18 @@ export async function handleVideoProxyCore({
     return createErrorResult(HTTP_STATUS.BAD_REQUEST, `Unknown video action: ${action}`);
   }
 
-  const method = requestId ? "GET" : "POST";
-  const url = buildUpstreamUrl(config, action, requestId);
+  const isAi2w = provider === "ai2w" || provider === "aivideoworkflow";
+  const method = isAi2w ? "POST" : (requestId ? "GET" : "POST");
+  const url = buildUpstreamUrl(config, action, requestId, provider, model, credentials);
   const fetchSignal = combineSignals(signal, timeoutMs);
+  const forwardBody = isAi2w ? buildAi2wRequestBody(action, requestId, rawBody, model) : rawBody;
+  const sendContentType = isAi2w ? "application/json" : contentType;
 
   const doFetch = (token) =>
     fetch(url, {
       method,
-      headers: buildHeaders({ token, contentType: method === "POST" ? contentType : null, idempotencyKey: method === "POST" ? idempotencyKey : null }),
-      body: method === "POST" ? rawBody : undefined,
+      headers: buildHeaders({ token, contentType: sendContentType, idempotencyKey: method === "POST" ? idempotencyKey : null }),
+      body: method === "POST" ? forwardBody : undefined,
       signal: fetchSignal,
     });
 
@@ -150,6 +203,73 @@ export async function handleVideoProxyCore({
   if (!upstream.ok) {
     const message = sanitizeSecrets(bodyText || `HTTP ${upstream.status}`, credentials);
     return createErrorResult(upstream.status, `[${provider}] ${message.slice(0, 2000)}`);
+  }
+
+  // Normalize response for ai2w
+  if (isAi2w) {
+    try {
+      const data = JSON.parse(bodyText);
+      // Poll response: { success, mediaItems: [{ name, downloadUrl, status, ... }] }
+      if (requestId) {
+        const item = data.mediaItems?.[0] || {};
+        const status = item.status === "MEDIA_GENERATION_STATUS_SUCCESSFUL"
+          ? "done"
+          : item.status === "MEDIA_GENERATION_STATUS_FAILED"
+          ? "failed"
+          : "pending";
+        const normalized = {
+          status,
+          video: item.downloadUrl ? { url: item.downloadUrl } : undefined,
+          mediaItems: data.mediaItems,
+        };
+        return {
+          success: true,
+          response: new Response(JSON.stringify(normalized), {
+            status: upstream.status,
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+          }),
+        };
+      }
+
+      // Generation response
+      const m = (model || "").toLowerCase();
+      // Grok direct video
+      if (m === "grok" || m === "grok-video" || data.videoUrl || data.videoBase64) {
+        const normalized = {
+          status: "done",
+          video: {
+            url: data.videoUrl || data.videoDataUrl || "",
+            base64: data.videoBase64,
+          },
+          videoUrl: data.videoUrl,
+          videoBase64: data.videoBase64,
+          videoDataUrl: data.videoDataUrl,
+        };
+        return {
+          success: true,
+          response: new Response(JSON.stringify(normalized), {
+            status: upstream.status,
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+          }),
+        };
+      }
+
+      // Veo3 creation: { pollingId, projectId, operations, ... }
+      const normalized = {
+        request_id: data.pollingId || data.id,
+        pollingId: data.pollingId,
+        projectId: data.projectId,
+        operations: data.operations,
+        status: "pending",
+      };
+      return {
+        success: true,
+        response: new Response(JSON.stringify(normalized), {
+          status: upstream.status,
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+        }),
+      };
+    } catch {}
   }
 
   // Success: pass the upstream JSON through untouched (request_id / status / video.url).

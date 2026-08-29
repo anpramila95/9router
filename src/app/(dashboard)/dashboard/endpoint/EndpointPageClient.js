@@ -22,8 +22,28 @@ export default function APIPageClient({ machineId }) {
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
+  const [newCustomKeyValue, setNewCustomKeyValue] = useState("");
+  const [newKeyLimit5h, setNewKeyLimit5h] = useState("");
+  const [newKeyLimit7d, setNewKeyLimit7d] = useState("");
+  const [newKeyLimit30d, setNewKeyLimit30d] = useState("");
+  const [newKeyLimitImageDaily, setNewKeyLimitImageDaily] = useState("");
+  const [newKeyLimitVideoDaily, setNewKeyLimitVideoDaily] = useState("");
   const [createdKey, setCreatedKey] = useState(null);
   const [confirmState, setConfirmState] = useState(null);
+
+  // Key list: search + pagination
+  const [searchQuery, setSearchQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 50;
+
+  // Edit limits modal
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editKey, setEditKey] = useState(null);
+  const [editKeyLimit5h, setEditKeyLimit5h] = useState("");
+  const [editKeyLimit7d, setEditKeyLimit7d] = useState("");
+  const [editKeyLimit30d, setEditKeyLimit30d] = useState("");
+  const [editKeyLimitImageDaily, setEditKeyLimitImageDaily] = useState("");
+  const [editKeyLimitVideoDaily, setEditKeyLimitVideoDaily] = useState("");
 
   const [requireApiKey, setRequireApiKey] = useState(false);
   const [requireLogin, setRequireLogin] = useState(true);
@@ -629,7 +649,15 @@ export default function APIPageClient({ machineId }) {
       const res = await fetch("/api/keys", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newKeyName }),
+        body: JSON.stringify({
+          name: newKeyName,
+          key: newCustomKeyValue.trim() || undefined,
+          limit5h: newKeyLimit5h ? Number(newKeyLimit5h) : undefined,
+          limit7d: newKeyLimit7d ? Number(newKeyLimit7d) : undefined,
+          limit30d: newKeyLimit30d ? Number(newKeyLimit30d) : undefined,
+          limitImageDaily: newKeyLimitImageDaily ? Number(newKeyLimitImageDaily) : undefined,
+          limitVideoDaily: newKeyLimitVideoDaily ? Number(newKeyLimitVideoDaily) : undefined,
+        }),
       });
       const data = await res.json();
 
@@ -637,6 +665,12 @@ export default function APIPageClient({ machineId }) {
         setCreatedKey(data.key);
         await fetchData();
         setNewKeyName("");
+        setNewCustomKeyValue("");
+        setNewKeyLimit5h("");
+        setNewKeyLimit7d("");
+        setNewKeyLimit30d("");
+        setNewKeyLimitImageDaily("");
+        setNewKeyLimitVideoDaily("");
         setShowAddModal(false);
       }
     } catch (error) {
@@ -687,6 +721,13 @@ export default function APIPageClient({ machineId }) {
     return fullKey.slice(0, 6) + "•".repeat(fullKey.length - 10) + fullKey.slice(-4);
   };
 
+  const formatLimit = (n) => {
+    if (n == null) return "";
+    return n >= 1000000 ? `${(n / 1000000).toFixed(n % 1000000 === 0 ? 0 : 1)}M`
+      : n >= 1000 ? `${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}K`
+      : String(n);
+  };
+
   const toggleKeyVisibility = (keyId) => {
     setVisibleKeys(prev => {
       const next = new Set(prev);
@@ -694,6 +735,55 @@ export default function APIPageClient({ machineId }) {
       else next.add(keyId);
       return next;
     });
+  };
+
+  // Search + pagination over keys
+  const filteredKeys = keys.filter((k) => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return true;
+    return (k.name || "").toLowerCase().includes(q) || (k.key || "").toLowerCase().includes(q);
+  });
+  const totalPages = Math.max(1, Math.ceil(filteredKeys.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const paginatedKeys = filteredKeys.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  const handleEditKey = (key) => {
+    setEditKey(key);
+    setEditKeyLimit5h(key.limit5h != null ? String(key.limit5h) : "");
+    setEditKeyLimit7d(key.limit7d != null ? String(key.limit7d) : "");
+    setEditKeyLimit30d(key.limit30d != null ? String(key.limit30d) : "");
+    setEditKeyLimitImageDaily(key.limitImageDaily != null ? String(key.limitImageDaily) : "");
+    setEditKeyLimitVideoDaily(key.limitVideoDaily != null ? String(key.limitVideoDaily) : "");
+    setShowEditModal(true);
+  };
+
+  const handleSaveLimits = async () => {
+    if (!editKey) return;
+    try {
+      const res = await fetch(`/api/keys/${editKey.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          limit5h: editKeyLimit5h ? Number(editKeyLimit5h) : null,
+          limit7d: editKeyLimit7d ? Number(editKeyLimit7d) : null,
+          limit30d: editKeyLimit30d ? Number(editKeyLimit30d) : null,
+          limitImageDaily: editKeyLimitImageDaily ? Number(editKeyLimitImageDaily) : null,
+          limitVideoDaily: editKeyLimitVideoDaily ? Number(editKeyLimitVideoDaily) : null,
+        }),
+      });
+      if (res.ok) {
+        await fetchData();
+        setShowEditModal(false);
+        setEditKey(null);
+        setEditKeyLimit5h("");
+        setEditKeyLimit7d("");
+        setEditKeyLimit30d("");
+        setEditKeyLimitImageDaily("");
+        setEditKeyLimitVideoDaily("");
+      }
+    } catch (error) {
+      console.log("Error updating limits:", error);
+    }
   };
 
   const [baseUrl, setBaseUrl] = useState("/v1");
@@ -1007,7 +1097,25 @@ export default function APIPageClient({ machineId }) {
           </div>
         ) : (
           <div className="flex flex-col">
-            {keys.map((key) => (
+            <div className="flex items-center gap-2 mb-3">
+              <Input
+                value={searchQuery}
+                onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+                placeholder="Search by name or key..."
+                icon="search"
+                className="flex-1"
+                inputClassName="py-2"
+              />
+              <span className="text-xs text-text-muted whitespace-nowrap">
+                {filteredKeys.length} {filteredKeys.length === 1 ? "key" : "keys"}
+              </span>
+            </div>
+            {paginatedKeys.length === 0 ? (
+              <p className="text-sm text-text-muted text-center py-8">No keys match your search</p>
+            ) : (
+            <div className="flex flex-col">
+            {paginatedKeys.map((key) => {
+              return (
               <div
                 key={key.id}
                 className={`group flex items-center justify-between py-3 border-b border-black/[0.03] dark:border-white/[0.03] last:border-b-0 ${key.isActive === false ? "opacity-60" : ""}`}
@@ -1039,6 +1147,17 @@ export default function APIPageClient({ machineId }) {
                   <p className="text-xs text-text-muted mt-1">
                     Created {new Date(key.createdAt).toLocaleDateString()}
                   </p>
+                  <p className="text-xs text-text-muted mt-1">
+                    {key.limit5h != null || key.limit7d != null || key.limit30d != null || key.limitImageDaily != null || key.limitVideoDaily != null
+                      ? `Limits: ${[
+                          key.limit5h != null ? `${formatLimit(key.limit5h)}/5h` : null,
+                          key.limit7d != null ? `${formatLimit(key.limit7d)}/7d` : null,
+                          key.limit30d != null ? `${formatLimit(key.limit30d)}/30d` : null,
+                          key.limitImageDaily != null ? `${key.limitImageDaily} imgs/day` : null,
+                          key.limitVideoDaily != null ? `${key.limitVideoDaily} vids/day` : null,
+                        ].filter(Boolean).join(" · ")}`
+                      : "No limit"}
+                  </p>
                   {key.isActive === false && (
                     <p className="text-xs text-orange-500 mt-1">Paused</p>
                   )}
@@ -1064,6 +1183,13 @@ export default function APIPageClient({ machineId }) {
                     title={key.isActive ? "Pause key" : "Resume key"}
                   />
                   <button
+                    onClick={() => handleEditKey(key)}
+                    className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-all"
+                    title="Edit limits"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">edit</span>
+                  </button>
+                  <button
                     onClick={() => handleDeleteKey(key.id)}
                     className="p-2 hover:bg-red-500/10 rounded text-red-500 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all"
                   >
@@ -1071,7 +1197,22 @@ export default function APIPageClient({ machineId }) {
                   </button>
                 </div>
               </div>
-            ))}
+              );
+            })}
+            </div>
+            )}
+
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center gap-2 mt-4">
+                <Button size="sm" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)} icon="chevron_left">
+                  Prev
+                </Button>
+                <span className="text-xs text-text-muted">Page {safePage} / {totalPages}</span>
+                <Button size="sm" disabled={safePage >= totalPages} onClick={() => setPage(safePage + 1)} icon="chevron_right">
+                  Next
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </Card>
@@ -1083,6 +1224,12 @@ export default function APIPageClient({ machineId }) {
         onClose={() => {
           setShowAddModal(false);
           setNewKeyName("");
+          setNewCustomKeyValue("");
+          setNewKeyLimit5h("");
+          setNewKeyLimit7d("");
+          setNewKeyLimit30d("");
+          setNewKeyLimitImageDaily("");
+          setNewKeyLimitVideoDaily("");
         }}
       >
         <div className="flex flex-col gap-4">
@@ -1092,6 +1239,65 @@ export default function APIPageClient({ machineId }) {
             onChange={(e) => setNewKeyName(e.target.value)}
             placeholder="Production Key"
           />
+          <Input
+            label="Custom API Key (Optional)"
+            value={newCustomKeyValue}
+            onChange={(e) => setNewCustomKeyValue(e.target.value)}
+            placeholder="e.g. sk-my-secret-key (leave blank to auto-generate)"
+            hint="Leave blank to let 9Router automatically generate a secure key."
+          />
+          <div>
+            <p className="text-sm font-medium mb-2">Daily Media Limits</p>
+            <p className="text-xs text-text-muted mb-3">Limit max images / videos generated per day (24h).</p>
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              <Input
+                label="Max Images / Day"
+                type="number"
+                min="0"
+                value={newKeyLimitImageDaily}
+                onChange={(e) => setNewKeyLimitImageDaily(e.target.value)}
+                placeholder="e.g. 50"
+              />
+              <Input
+                label="Max Videos / Day"
+                type="number"
+                min="0"
+                value={newKeyLimitVideoDaily}
+                onChange={(e) => setNewKeyLimitVideoDaily(e.target.value)}
+                placeholder="e.g. 10"
+              />
+            </div>
+          </div>
+          <div>
+            <p className="text-sm font-medium mb-2">Token Limits</p>
+            <p className="text-xs text-text-muted mb-3">Leave blank for no limit. Requests over the limit return HTTP 429.</p>
+            <div className="grid grid-cols-3 gap-2">
+              <Input
+                label="5 hours"
+                type="number"
+                min="0"
+                value={newKeyLimit5h}
+                onChange={(e) => setNewKeyLimit5h(e.target.value)}
+                placeholder="e.g. 100000"
+              />
+              <Input
+                label="7 days"
+                type="number"
+                min="0"
+                value={newKeyLimit7d}
+                onChange={(e) => setNewKeyLimit7d(e.target.value)}
+                placeholder="e.g. 500000"
+              />
+              <Input
+                label="30 days"
+                type="number"
+                min="0"
+                value={newKeyLimit30d}
+                onChange={(e) => setNewKeyLimit30d(e.target.value)}
+                placeholder="e.g. 2000000"
+              />
+            </div>
+          </div>
           <div className="flex gap-2">
             <Button onClick={handleCreateKey} fullWidth disabled={!newKeyName.trim()}>
               Create
@@ -1100,6 +1306,12 @@ export default function APIPageClient({ machineId }) {
               onClick={() => {
                 setShowAddModal(false);
                 setNewKeyName("");
+                setNewCustomKeyValue("");
+                setNewKeyLimit5h("");
+                setNewKeyLimit7d("");
+                setNewKeyLimit30d("");
+                setNewKeyLimitImageDaily("");
+                setNewKeyLimitVideoDaily("");
               }}
               variant="ghost"
               fullWidth
@@ -1142,6 +1354,91 @@ export default function APIPageClient({ machineId }) {
           <Button onClick={() => setCreatedKey(null)} fullWidth>
             Done
           </Button>
+        </div>
+      </Modal>
+
+      {/* Edit Limits Modal */}
+      <Modal
+        isOpen={showEditModal}
+        title={editKey ? `Edit Limits: ${editKey.name}` : "Edit Limits"}
+        onClose={() => {
+          setShowEditModal(false);
+          setEditKey(null);
+          setEditKeyLimit5h("");
+          setEditKeyLimit7d("");
+          setEditKeyLimit30d("");
+        }}
+      >
+        <div className="flex flex-col gap-4">
+          <p className="text-xs text-text-muted">
+            Leave blank for no limit. Requests over the limit return HTTP 429.
+          </p>
+          <div>
+            <p className="text-sm font-medium mb-2">Daily Media Limits</p>
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <Input
+                label="Max Images / Day"
+                type="number"
+                min="0"
+                value={editKeyLimitImageDaily}
+                onChange={(e) => setEditKeyLimitImageDaily(e.target.value)}
+                placeholder="No limit"
+              />
+              <Input
+                label="Max Videos / Day"
+                type="number"
+                min="0"
+                value={editKeyLimitVideoDaily}
+                onChange={(e) => setEditKeyLimitVideoDaily(e.target.value)}
+                placeholder="No limit"
+              />
+            </div>
+          </div>
+          <div>
+            <p className="text-sm font-medium mb-2">Token Limits</p>
+            <Input
+              label="5 hours"
+              type="number"
+              min="0"
+              value={editKeyLimit5h}
+              onChange={(e) => setEditKeyLimit5h(e.target.value)}
+              placeholder="No limit"
+            />
+            <Input
+              label="7 days"
+              type="number"
+              min="0"
+              value={editKeyLimit7d}
+              onChange={(e) => setEditKeyLimit7d(e.target.value)}
+              placeholder="No limit"
+            />
+            <Input
+              label="30 days"
+              type="number"
+              min="0"
+              value={editKeyLimit30d}
+              onChange={(e) => setEditKeyLimit30d(e.target.value)}
+              placeholder="No limit"
+            />
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={handleSaveLimits} fullWidth>
+              Save
+            </Button>
+            <Button
+              onClick={() => {
+                setShowEditModal(false);
+                setEditKey(null);
+                setEditKeyLimit5h("");
+                setEditKeyLimit7d("");
+                setEditKeyLimit30d("");
+              }}
+              variant="ghost"
+              fullWidth
+            >
+              Cancel
+            </Button>
+          </div>
         </div>
       </Modal>
 

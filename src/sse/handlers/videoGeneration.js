@@ -11,6 +11,7 @@ import { handleVideoProxyCore, getVideoConfig, sanitizeSecrets } from "open-sse/
 import { errorResponse, unavailableResponse } from "open-sse/utils/error.js";
 import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
+import { saveRequestUsage } from "@/lib/usageDb.js";
 import * as log from "../utils/logger.js";
 
 // Video generation is xAI-only today; requests without a provider prefix
@@ -26,13 +27,18 @@ const CREATE_ROTATION_STATUSES = new Set([
   HTTP_STATUS.RATE_LIMITED,
 ]);
 
-async function requireValidApiKey(request) {
+async function requireValidApiKey(request, kind = "token") {
   const apiKey = extractApiKey(request);
   const settings = await getSettings();
   if (settings.requireApiKey) {
     if (!apiKey) return errorResponse(HTTP_STATUS.UNAUTHORIZED, "Missing API key");
     const valid = await isValidApiKey(apiKey);
     if (!valid) return errorResponse(HTTP_STATUS.UNAUTHORIZED, "Invalid API key");
+    const limit = await checkApiKeyTokenLimit(apiKey, kind);
+    if (!limit.allowed) return errorResponse(HTTP_STATUS.RATE_LIMITED, limit.message);
+  } else if (apiKey) {
+    const limit = await checkApiKeyTokenLimit(apiKey, kind);
+    if (!limit.allowed) return errorResponse(HTTP_STATUS.RATE_LIMITED, limit.message);
   }
   return null;
 }
@@ -92,8 +98,9 @@ function withConnectionHeader(response, connectionId) {
  * POST /v1/videos/{generations|edits|extensions} — async job creation proxy.
  */
 export async function handleVideoCreate(request, action) {
-  const authError = await requireValidApiKey(request);
+  const authError = await requireValidApiKey(request, "video");
   if (authError) return authError;
+  const apiKey = extractApiKey(request);
 
   const bodyInfo = await readForwardableBody(request);
   if (bodyInfo.error) return bodyInfo.error;
@@ -136,6 +143,7 @@ export async function handleVideoCreate(request, action) {
     const result = await handleVideoProxyCore({
       provider,
       action,
+      model,
       rawBody: forwardBody,
       contentType: bodyInfo.contentType || null,
       idempotencyKey,
@@ -153,6 +161,15 @@ export async function handleVideoCreate(request, action) {
     });
 
     if (result.success) {
+      saveRequestUsage({
+        provider,
+        model,
+        connectionId: credentials?.connectionId || null,
+        apiKey: apiKey || null,
+        endpoint: `/v1/videos/${action}`,
+        tokens: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+        status: "ok",
+      }).catch(() => {});
       await clearAccountError(credentials.connectionId, credentials, model);
       log.info("VIDEO", `${provider.toUpperCase()} | ${action} accepted (connection ${credentials.connectionId})`);
       return withConnectionHeader(result.response, credentials.connectionId);
@@ -185,8 +202,15 @@ export async function handleVideoGet(request, requestId) {
 
   if (!requestId) return errorResponse(HTTP_STATUS.BAD_REQUEST, "Missing video request id");
 
-  const provider = DEFAULT_VIDEO_PROVIDER;
+  const url = new URL(request.url);
   const preferredConnectionId = request.headers.get("x-connection-id") || null;
+  const providerParam = url.searchParams.get("provider");
+  let provider = providerParam || DEFAULT_VIDEO_PROVIDER;
+  if (preferredConnectionId) {
+    const { getProviderConnectionById } = await import("@/lib/localDb");
+    const conn = await getProviderConnectionById(preferredConnectionId);
+    if (conn?.provider) provider = conn.provider;
+  }
 
   const credentials = await getProviderCredentials(provider, null, null, { preferredConnectionId });
   if (!credentials || credentials.allRateLimited) {

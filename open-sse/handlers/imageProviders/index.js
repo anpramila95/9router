@@ -12,6 +12,7 @@ import blackForestLabs from "./blackForestLabs.js";
 import runwayml from "./runwayml.js";
 import cloudflareAi from "./cloudflareAi.js";
 import antigravity from "./antigravity.js";
+import ai2w from "./ai2w.js";
 
 const ADAPTERS = {
   openai: createOpenAIAdapter("openai"),
@@ -20,6 +21,10 @@ const ADAPTERS = {
   recraft: createOpenAIAdapter("recraft"),
   "vercel-ai-gateway": createOpenAIAdapter("vercel-ai-gateway"),
   xai: createOpenAIAdapter("xai"),
+  gpt2api: createOpenAIAdapter("gpt2api"),
+  g2a: createOpenAIAdapter("gpt2api"),
+  ai2w,
+  aivideoworkflow: ai2w,
   gemini,
   codex,
   sdwebui,

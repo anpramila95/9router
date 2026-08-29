@@ -102,11 +102,13 @@ export default function UsageTable({
   onToggleSort,
   viewMode,
   storageKey,
+  renderGroupLabel,
   renderDetailCells,
   renderSummaryCells,
   emptyMessage,
 }) {
   const [expanded, setExpanded] = useState(new Set());
+  const [searchTerm, setSearchTerm] = useState("");
 
   // Load expanded state from localStorage
   useEffect(() => {
@@ -152,12 +154,50 @@ export default function UsageTable({
     ];
   }, [viewMode]);
 
+  const filteredGroupedData = useMemo(() => {
+    if (!searchTerm.trim()) return groupedData;
+    const term = searchTerm.toLowerCase();
+    return groupedData
+      .map((group) => {
+        const groupMatch = group.groupKey?.toLowerCase().includes(term);
+        const matchingItems = group.items.filter((item) =>
+          Object.values(item).some((v) => typeof v === "string" && v.toLowerCase().includes(term))
+        );
+        if (groupMatch) return group;
+        if (matchingItems.length > 0) {
+          return { ...group, items: matchingItems };
+        }
+        return null;
+      })
+      .filter(Boolean);
+  }, [groupedData, searchTerm]);
+
   const totalColSpan = columns.length + valueColumns.length;
 
   return (
     <Card className="overflow-hidden">
-      <div className="p-4 border-b border-border bg-bg-subtle/50">
+      <div className="p-4 border-b border-border bg-bg-subtle/50 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <h3 className="font-semibold">{title}</h3>
+        <div className="relative w-full sm:w-64">
+          <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-[16px] text-text-muted">
+            search
+          </span>
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Search usage..."
+            className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-border bg-background focus:outline-none focus:border-primary transition-colors"
+          />
+          {searchTerm && (
+            <button
+              onClick={() => setSearchTerm("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-main"
+            >
+              <span className="material-symbols-outlined text-[14px]">close</span>
+            </button>
+          )}
+        </div>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm text-left">
@@ -186,7 +226,7 @@ export default function UsageTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {groupedData.map((group) => (
+            {filteredGroupedData.map((group) => (
               <Fragment key={group.groupKey}>
                 {/* Group summary row */}
                 <tr
@@ -198,9 +238,11 @@ export default function UsageTable({
                       <span className={`material-symbols-outlined text-[18px] text-text-muted transition-transform ${expanded.has(group.groupKey) ? "rotate-90" : ""}`}>
                         chevron_right
                       </span>
-                      <span className={`font-medium transition-colors ${group.summary.pending > 0 ? "text-primary" : ""}`}>
-                        {group.groupKey}
-                      </span>
+                      {renderGroupLabel ? renderGroupLabel(group) : (
+                        <span className={`font-medium transition-colors ${group.summary.pending > 0 ? "text-primary" : ""}`}>
+                          {group.groupKey}
+                        </span>
+                      )}
                     </div>
                   </td>
                   {renderSummaryCells(group)}
@@ -218,7 +260,7 @@ export default function UsageTable({
                 ))}
               </Fragment>
             ))}
-            {groupedData.length === 0 && (
+            {filteredGroupedData.length === 0 && (
               <tr>
                 <td colSpan={totalColSpan} className="px-6 py-8 text-center text-text-muted">
                   {emptyMessage}

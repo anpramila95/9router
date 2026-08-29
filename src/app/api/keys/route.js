@@ -19,7 +19,7 @@ export async function GET() {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { name } = body;
+    const { name, key: customKey, limit5h, limit7d, limit30d, limitImageDaily, limitVideoDaily } = body;
 
     if (!name) {
       return NextResponse.json({ error: "Name is required" }, { status: 400 });
@@ -27,13 +27,18 @@ export async function POST(request) {
 
     // Always get machineId from server
     const machineId = await getConsistentMachineId();
-    const apiKey = await createApiKey(name, machineId);
+    const apiKey = await createApiKey(name, machineId, { limit5h, limit7d, limit30d, limitImageDaily, limitVideoDaily }, customKey);
 
     return NextResponse.json({
       key: apiKey.key,
       name: apiKey.name,
       id: apiKey.id,
       machineId: apiKey.machineId,
+      limit5h: apiKey.limit5h,
+      limit7d: apiKey.limit7d,
+      limit30d: apiKey.limit30d,
+      limitImageDaily: apiKey.limitImageDaily,
+      limitVideoDaily: apiKey.limitVideoDaily,
     }, { status: 201 });
   } catch (error) {
     console.log("Error creating key:", error);

@@ -29,7 +29,7 @@ export function getTtsAdapter(provider) {
 }
 
 // Generic config-driven dispatcher (uses ttsConfig.format)
-export async function synthesizeViaConfig(provider, text, model, credentials) {
+export async function synthesizeViaConfig(provider, text, model, credentials, responseFormat = "mp3") {
   const { AI_PROVIDERS } = await import("@/shared/constants/providers");
   const cfg = AI_PROVIDERS[provider]?.ttsConfig;
   if (!cfg) return null;
@@ -41,7 +41,19 @@ export async function synthesizeViaConfig(provider, text, model, credentials) {
   const ttsModels = (PROVIDER_MODELS[provider] || []).filter(m => (m.kind || m.type) === "tts");
   const defaultModel = ttsModels[0]?.id || "";
   const { modelId, voiceId } = parseModelVoice(model, defaultModel, "", ttsModels);
-  return handler({ baseUrl: cfg.baseUrl, apiKey, text, modelId, voiceId });
+  const rawUrl = credentials?.providerSpecificData?.baseUrl || credentials?.baseUrl || cfg.baseUrl;
+  let resolvedBaseUrl = rawUrl;
+  if (rawUrl && (cfg.format === "gpt2api" || cfg.format === "openai")) {
+    const base = String(rawUrl).replace(/\/+$/, "");
+    if (base.endsWith("/v1/audio/speech") || base.endsWith("/audio/speech")) {
+      resolvedBaseUrl = base;
+    } else if (base.endsWith("/v1")) {
+      resolvedBaseUrl = `${base}/audio/speech`;
+    } else {
+      resolvedBaseUrl = `${base}/v1/audio/speech`;
+    }
+  }
+  return handler({ baseUrl: resolvedBaseUrl, apiKey, text, modelId, voiceId, responseFormat });
 }
 
 // Voice fetchers (used by /api/media-providers/tts/voices route)

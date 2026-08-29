@@ -195,6 +195,7 @@ export function TtsExampleCard({ providerId }) {
 
   const ttsBody = (() => {
     const b = { model: modelFull, input };
+    if (activeVoiceId) b.voice = activeVoiceId;
     if (config.hasLanguageHint && languageHint) b.language = languageHint;
     if (config.hasStyleInput && style.trim()) b.style = style.trim();
     return b;

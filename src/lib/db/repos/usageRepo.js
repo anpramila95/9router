@@ -509,14 +509,37 @@ export async function getUsageStats(period = "all") {
         const keyName = keyInfo?.name || (apiKeyVal ? apiKeyVal.slice(0, 8) + "..." : "Local (No API Key)");
         const apiKeyMasked = maskApiKey(apiKeyVal);
         const apiKeyKey = apiKeyMasked || "local-no-key";
+        const imageCount = (ak.endpoint?.includes("images") || ak.endpoint?.includes("image")) ? (ak.requests || 0) : 0;
+        const videoCount = (ak.endpoint?.includes("videos") || ak.endpoint?.includes("video")) ? (ak.requests || 0) : 0;
         if (!stats.byApiKey[akKey]) {
-          stats.byApiKey[akKey] = { requests: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0, cost: 0, rawModel, provider: providerDisplayName, apiKeyMasked, keyName, apiKeyKey, lastUsed: dateKey };
+          stats.byApiKey[akKey] = {
+            requests: 0,
+            promptTokens: 0,
+            completionTokens: 0,
+            cachedTokens: 0,
+            cost: 0,
+            imageCount: 0,
+            videoCount: 0,
+            limitImageDaily: keyInfo?.limitImageDaily ?? null,
+            limitVideoDaily: keyInfo?.limitVideoDaily ?? null,
+            limit5h: keyInfo?.limit5h ?? null,
+            limit7d: keyInfo?.limit7d ?? null,
+            limit30d: keyInfo?.limit30d ?? null,
+            rawModel,
+            provider: providerDisplayName,
+            apiKeyMasked,
+            keyName,
+            apiKeyKey,
+            lastUsed: dateKey,
+          };
         }
         stats.byApiKey[akKey].requests += ak.requests || 0;
         stats.byApiKey[akKey].promptTokens += ak.promptTokens || 0;
         stats.byApiKey[akKey].completionTokens += ak.completionTokens || 0;
         stats.byApiKey[akKey].cachedTokens += ak.cachedTokens || 0;
         stats.byApiKey[akKey].cost += ak.cost || 0;
+        stats.byApiKey[akKey].imageCount += imageCount;
+        stats.byApiKey[akKey].videoCount += videoCount;
         if (dateKey > (stats.byApiKey[akKey].lastUsed || "")) stats.byApiKey[akKey].lastUsed = dateKey;
       }
 
@@ -628,18 +651,64 @@ export async function getUsageStats(period = "all") {
         const keyName = keyInfo?.name || r.apiKey.slice(0, 8) + "...";
         const apiKeyMasked = maskApiKey(r.apiKey);
         const akKey = `${apiKeyMasked}|${r.model}|${r.provider || "unknown"}`;
+        const imageCount = (endpoint.includes("images") || endpoint.includes("image")) ? 1 : 0;
+        const videoCount = (endpoint.includes("videos") || endpoint.includes("video")) ? 1 : 0;
         if (!stats.byApiKey[akKey]) {
-          stats.byApiKey[akKey] = { requests: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0, cost: 0, rawModel: r.model, provider: providerDisplayName, apiKeyMasked, keyName, apiKeyKey: apiKeyMasked, lastUsed: r.timestamp };
+          stats.byApiKey[akKey] = {
+            requests: 0,
+            promptTokens: 0,
+            completionTokens: 0,
+            cachedTokens: 0,
+            cost: 0,
+            imageCount: 0,
+            videoCount: 0,
+            limitImageDaily: keyInfo?.limitImageDaily ?? null,
+            limitVideoDaily: keyInfo?.limitVideoDaily ?? null,
+            limit5h: keyInfo?.limit5h ?? null,
+            limit7d: keyInfo?.limit7d ?? null,
+            limit30d: keyInfo?.limit30d ?? null,
+            rawModel: r.model,
+            provider: providerDisplayName,
+            apiKeyMasked,
+            keyName,
+            apiKeyKey: apiKeyMasked,
+            lastUsed: r.timestamp,
+          };
         }
         const ake = stats.byApiKey[akKey];
         ake.requests++; ake.promptTokens += promptTokens; ake.completionTokens += completionTokens; ake.cachedTokens += cachedTokens; ake.cost += entryCost;
+        ake.imageCount += imageCount;
+        ake.videoCount += videoCount;
         if (new Date(r.timestamp) > new Date(ake.lastUsed)) ake.lastUsed = r.timestamp;
       } else {
+        const imageCount = (endpoint.includes("images") || endpoint.includes("image")) ? 1 : 0;
+        const videoCount = (endpoint.includes("videos") || endpoint.includes("video")) ? 1 : 0;
         if (!stats.byApiKey["local-no-key"]) {
-          stats.byApiKey["local-no-key"] = { requests: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0, cost: 0, rawModel: r.model, provider: providerDisplayName, apiKeyMasked: null, keyName: "Local (No API Key)", apiKeyKey: "local-no-key", lastUsed: r.timestamp };
+          stats.byApiKey["local-no-key"] = {
+            requests: 0,
+            promptTokens: 0,
+            completionTokens: 0,
+            cachedTokens: 0,
+            cost: 0,
+            imageCount: 0,
+            videoCount: 0,
+            limitImageDaily: null,
+            limitVideoDaily: null,
+            limit5h: null,
+            limit7d: null,
+            limit30d: null,
+            rawModel: r.model,
+            provider: providerDisplayName,
+            apiKeyMasked: null,
+            keyName: "Local (No API Key)",
+            apiKeyKey: "local-no-key",
+            lastUsed: r.timestamp,
+          };
         }
         const ake = stats.byApiKey["local-no-key"];
         ake.requests++; ake.promptTokens += promptTokens; ake.completionTokens += completionTokens; ake.cachedTokens += cachedTokens; ake.cost += entryCost;
+        ake.imageCount += imageCount;
+        ake.videoCount += videoCount;
         if (new Date(r.timestamp) > new Date(ake.lastUsed)) ake.lastUsed = r.timestamp;
       }
 
