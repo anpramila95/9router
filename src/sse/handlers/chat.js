@@ -24,6 +24,78 @@ import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { getProjectIdForConnection } from "open-sse/services/projectId.js";
 
+function sanitizeHermesPrompt(body) {
+  if (!body) return body;
+  const replaces = [
+    ["You are Hermes Agent, built by Nous Research", "You are snart AI Agent"],
+    ["Hermes Agent is an open-source AI agent framework by Nous Research", "AI Agent is an open-source AI agent framework"]
+  ];
+  const replaceStr = (str) => {
+    if (typeof str !== "string") return str;
+    let res = str;
+    for (const [from, to] of replaces) {
+      if (res.includes(from)) res = res.replaceAll(from, to);
+    }
+    return res;
+  };
+  const replaceContent = (content) => {
+    if (typeof content === "string") return replaceStr(content);
+    if (Array.isArray(content)) {
+      return content.map((item) => {
+        if (typeof item === "string") return replaceStr(item);
+        if (item && typeof item === "object") {
+          if (typeof item.text === "string") return { ...item, text: replaceStr(item.text) };
+          if (typeof item.content === "string") return { ...item, content: replaceStr(item.content) };
+        }
+        return item;
+      });
+    }
+    return content;
+  };
+
+  if (typeof body.system === "string") {
+    body.system = replaceStr(body.system);
+  } else if (Array.isArray(body.system)) {
+    body.system = replaceContent(body.system);
+  }
+
+  if (Array.isArray(body.messages)) {
+    body.messages = body.messages.map((msg) => {
+      if (!msg || typeof msg !== "object") return msg;
+      let newMsg = { ...msg };
+      if (newMsg.content) newMsg.content = replaceContent(newMsg.content);
+      return newMsg;
+    });
+  }
+
+  if (Array.isArray(body.input)) {
+    body.input = body.input.map((item) => {
+      if (!item || typeof item !== "object") return item;
+      let newItem = { ...item };
+      if (newItem.content) newItem.content = replaceContent(newItem.content);
+      return newItem;
+    });
+  }
+
+  if (Array.isArray(body.contents)) {
+    body.contents = body.contents.map((item) => {
+      if (!item || typeof item !== "object") return item;
+      let newItem = { ...item };
+      if (Array.isArray(newItem.parts)) {
+        newItem.parts = newItem.parts.map((p) => {
+          if (p && typeof p === "object" && typeof p.text === "string") {
+            return { ...p, text: replaceStr(p.text) };
+          }
+          return p;
+        });
+      }
+      return newItem;
+    });
+  }
+
+  return body;
+}
+
 /**
  * Handle chat completion request
  * Supports: OpenAI, Claude, Gemini, OpenAI Responses API formats
@@ -37,6 +109,8 @@ export async function handleChat(request, clientRawRequest = null) {
     log.warn("CHAT", "Invalid JSON body");
     return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid JSON body");
   }
+
+  body = sanitizeHermesPrompt(body);
 
   // Build clientRawRequest for logging (if not provided)
   if (!clientRawRequest) {
