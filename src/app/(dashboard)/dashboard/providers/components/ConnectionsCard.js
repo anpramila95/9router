@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { getStatusVariant as getConnectionStatusVariant } from "@/shared/utils/connectionStatus";
 import PropTypes from "prop-types";
 import { Card, Badge, Button, Modal, Select, Toggle, EditConnectionModal, ConfirmModal } from "@/shared/components";
+import ConnectionImportExportModal from "../[id]/ConnectionImportExportModal";
 
 // ── CooldownTimer ──────────────────────────────────────────────
 function CooldownTimer({ until }) {
@@ -318,6 +319,7 @@ export default function ConnectionsCard({ providerId, isOAuth }) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedConnection, setSelectedConnection] = useState(null);
+  const [showImportExportModal, setShowImportExportModal] = useState(false);
   const [providerStrategy, setProviderStrategy] = useState(null);
   const [providerStickyLimit, setProviderStickyLimit] = useState("1");
   const [confirmState, setConfirmState] = useState(null);
@@ -419,27 +421,37 @@ export default function ConnectionsCard({ providerId, isOAuth }) {
       <Card>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
           <h2 className="text-lg font-semibold">Connections</h2>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs text-text-muted font-medium">Round Robin</span>
-            <Toggle
-              checked={providerStrategy === "round-robin"}
-              onChange={(enabled) => {
-                const strategy = enabled ? "round-robin" : null;
-                setProviderStrategy(strategy);
-                if (enabled && !providerStickyLimit) setProviderStickyLimit("1");
-                saveStrategy(strategy, enabled ? (providerStickyLimit || "1") : providerStickyLimit);
-              }}
-            />
-            {providerStrategy === "round-robin" && (
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-xs text-text-muted">Sticky:</span>
-                <input
-                  type="number" min={1} value={providerStickyLimit}
-                  onChange={(e) => { setProviderStickyLimit(e.target.value); saveStrategy("round-robin", e.target.value); }}
-                  className="w-16 px-2 py-1 text-xs border border-border rounded-md bg-background focus:outline-none focus:border-primary"
-                />
-              </div>
-            )}
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              size="sm"
+              variant="secondary"
+              icon="swap_horiz"
+              onClick={() => setShowImportExportModal(true)}
+            >
+              Import / Export
+            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-text-muted font-medium">Round Robin</span>
+              <Toggle
+                checked={providerStrategy === "round-robin"}
+                onChange={(enabled) => {
+                  const strategy = enabled ? "round-robin" : null;
+                  setProviderStrategy(strategy);
+                  if (enabled && !providerStickyLimit) setProviderStickyLimit("1");
+                  saveStrategy(strategy, enabled ? (providerStickyLimit || "1") : providerStickyLimit);
+                }}
+              />
+              {providerStrategy === "round-robin" && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-xs text-text-muted">Sticky:</span>
+                  <input
+                    type="number" min={1} value={providerStickyLimit}
+                    onChange={(e) => { setProviderStickyLimit(e.target.value); saveStrategy("round-robin", e.target.value); }}
+                    className="w-16 px-2 py-1 text-xs border border-border rounded-md bg-background focus:outline-none focus:border-primary"
+                  />
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -478,9 +490,19 @@ export default function ConnectionsCard({ providerId, isOAuth }) {
       <AddApiKeyModal
         isOpen={showAddModal}
         provider={providerId}
+        providerName={providerId}
         proxyPools={proxyPools}
         onSave={handleSaveApiKey}
         onClose={() => setShowAddModal(false)}
+      />
+
+      <ConnectionImportExportModal
+        isOpen={showImportExportModal}
+        providerId={providerId}
+        providerName={providerId}
+        connections={connections}
+        onClose={() => setShowImportExportModal(false)}
+        onImportSuccess={fetch_}
       />
       <EditConnectionModal
         isOpen={showEditModal}

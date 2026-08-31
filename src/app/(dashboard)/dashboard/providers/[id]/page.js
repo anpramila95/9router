@@ -22,6 +22,7 @@ import AddApiKeyModal from "./AddApiKeyModal";
 import EditCompatibleNodeModal from "./EditCompatibleNodeModal";
 import AddCustomModelModal from "./AddCustomModelModal";
 import BulkImportCodexModal from "./BulkImportCodexModal";
+import ConnectionImportExportModal from "./ConnectionImportExportModal";
 
 const ONE_BY_ONE_DELAY_MS = 1000;
 
@@ -48,6 +49,7 @@ export default function ProviderDetailPage() {
   const [showAddApiKeyModal, setShowAddApiKeyModal] = useState(false);
   const [addConnectionError, setAddConnectionError] = useState("");
   const [showBulkImportCodex, setShowBulkImportCodex] = useState(false);
+  const [showImportExportModal, setShowImportExportModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showEditNodeModal, setShowEditNodeModal] = useState(false);
   const [showBulkProxyModal, setShowBulkProxyModal] = useState(false);
@@ -1424,6 +1426,14 @@ export default function ProviderDetailPage() {
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-lg font-semibold">Connections</h2>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+              <Button
+                size="sm"
+                variant="secondary"
+                icon="swap_horiz"
+                onClick={() => setShowImportExportModal(true)}
+              >
+                Import / Export
+              </Button>
               {connections.length > 0 && proxyPools.length > 0 && (
                 <Button
                   size="sm"
@@ -1777,6 +1787,15 @@ export default function ProviderDetailPage() {
           onSuccess={fetchConnections}
         />
       )}
+
+      <ConnectionImportExportModal
+        isOpen={showImportExportModal}
+        providerId={providerId}
+        providerName={providerNode?.name || AI_PROVIDERS[providerId]?.name || providerId}
+        connections={connections}
+        onClose={() => setShowImportExportModal(false)}
+        onImportSuccess={fetchConnections}
+      />
 
       {/* AG Risk Confirmation Modal */}
       <ConfirmModal
