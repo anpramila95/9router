@@ -5,7 +5,7 @@ import { Card } from "@/shared/components";
 import { MEDIA_PROVIDER_KINDS, getProviderAlias, resolveProviderId } from "@/shared/constants/providers";
 import { getModelsByProviderId, getModelKind } from "@/shared/constants/models";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
-import { Row, KIND_EXAMPLE_CONFIG } from "./exampleShared";
+import { Row, KIND_EXAMPLE_CONFIG, PROVIDER_EXTRA_FIELDS } from "./exampleShared";
 
 const CLOUDFLARE_TEST_IMAGE_URL = "https://pub-1fb693cb11cc46b2b2f656f51e015a2c.r2.dev/dog.png";
 const CLOUDFLARE_TEST_MASK_URL = "https://pub-1fb693cb11cc46b2b2f656f51e015a2c.r2.dev/dog-mask.png";
@@ -35,6 +35,8 @@ export function GenericExampleCard({ providerId, kind }) {
   const kindConfig = MEDIA_PROVIDER_KINDS.find((k) => k.id === kind);
   const exConfig = KIND_EXAMPLE_CONFIG[kind];
   const safeExConfig = exConfig || {};
+  const providerFields = PROVIDER_EXTRA_FIELDS?.[providerId]?.[kind];
+  const effectiveExtraFields = providerFields || (safeExConfig.extraFields || []);
 
   // Get models for this kind (e.g., type="image")
   const kindModels = getModelsByProviderId(providerId).filter((m) => getModelKind(m) === kind);
@@ -51,7 +53,7 @@ export function GenericExampleCard({ providerId, kind }) {
   const [refImage, setRefImage] = useState("");
   const [maskImage, setMaskImage] = useState("");
   const [extraValues, setExtraValues] = useState(() =>
-    (safeExConfig.extraFields || []).reduce((acc, f) => { acc[f.key] = f.default ?? ""; return acc; }, {})
+    effectiveExtraFields.reduce((acc, f) => { acc[f.key] = f.default ?? ""; return acc; }, {})
   );
   const [apiKey, setApiKey] = useState("");
   const [useTunnel, setUseTunnel] = useState(false);
@@ -108,6 +110,11 @@ export function GenericExampleCard({ providerId, kind }) {
   const extraBodyFromFields = Object.entries(extraValues).reduce((acc, [k, v]) => {
     if (v === "" || v === null || v === undefined) return acc;
     if (typeof v === "number" && Number.isNaN(v)) return acc;
+    // Normalize images string → canonical [{image_url}] format at gateway boundary
+    if (k === "images" && typeof v === "string" && v.trim()) {
+      acc[k] = v.split(",").map((s) => ({ image_url: s.trim() })).filter((o) => o.image_url);
+      return acc;
+    }
     acc[k] = v;
     return acc;
   }, {});
@@ -131,6 +138,15 @@ export function GenericExampleCard({ providerId, kind }) {
 
   const handleRun = async () => {
     if (!input.trim() || !modelFull) return;
+    // ai2w video: image-to-video / reference-to-video require reference images
+    if (kind === "video" && (providerId === "ai2w" || providerId === "aivideoworkflow")) {
+      const mode = extraValues.mode;
+      if ((mode === "image-to-video" || mode === "reference-to-video") && !(extraValues.images || "").trim()) {
+        setError(`${mode} requires at least one reference image`);
+        setRunning(false);
+        return;
+      }
+    }
     setRunning(true);
     setError("");
     setResult(null);
@@ -394,7 +410,7 @@ export function GenericExampleCard({ providerId, kind }) {
         )}
 
         {/* Extra fields — for kinds without model concept (webSearch/webFetch), show all; otherwise filter by model.params */}
-        {(exConfig.extraFields || [])
+        {effectiveExtraFields
           .filter((f) => kindModels.length === 0 || (Array.isArray(selectedModelObj?.params) && selectedModelObj.params.includes(f.key)))
           .map((f) => (
           <Row key={f.key} label={f.label}>

@@ -62,7 +62,12 @@ function buildAi2wRequestBody(action, requestId, rawBody, model) {
   }
   const m = (model || parsed.model || "").toLowerCase();
   const aspectRatio = parsed.aspectRatio || parsed.aspect_ratio || "16:9";
-  const images = Array.isArray(parsed.images) ? parsed.images : parsed.image ? [parsed.image] : [];
+  // ai2w labs expects a plain string array (base64/URL), not [{image_url}]
+  const images = Array.isArray(parsed.images)
+    ? parsed.images.map((img) => (typeof img === "object" ? (img.image_url ?? img.url ?? "") : img)).filter(Boolean)
+    : typeof parsed.images === "string" && parsed.images.trim()
+    ? parsed.images.split(",").map((s) => s.trim()).filter(Boolean)
+    : parsed.image ? [parsed.image] : [];
 
   if (m === "grok" || m === "grok-video") {
     return JSON.stringify({

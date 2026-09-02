@@ -43,8 +43,8 @@ describe("AI2W (AIVideoWorkflow) provider", () => {
     const result = await handleImageGenerationCore({
       body: {
         prompt: "A cinematic cat warrior, 16:9",
-        size: "1792x1024",
-        images: ["https://example.com/input.png"],
+        aspectRatio: "16:9",
+        images: [{ image_url: "data:image/png;base64,QUJD" }],
       },
       modelInfo: { provider: "ai2w", model: "banana-pro" },
       credentials: { apiKey: "test-token", providerSpecificData: { baseUrl: "http://localhost:3000" } },
@@ -61,7 +61,57 @@ describe("AI2W (AIVideoWorkflow) provider", () => {
     expect(sentBody.model).toBe("banana-pro");
     expect(sentBody.prompt).toBe("A cinematic cat warrior, 16:9");
     expect(sentBody.aspectRatio).toBe("16:9");
-    expect(sentBody.images).toEqual(["https://example.com/input.png"]);
+    expect(sentBody.images).toEqual(["QUJD"]);
+  });
+
+  it("converts reference images to plain base64 array for labs", async () => {
+    global.fetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ success: true, media: [{ url: "https://example.com/out.png" }] }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    const result = await handleImageGenerationCore({
+      body: {
+        prompt: "A cat",
+        aspectRatio: "16:9",
+        images: [{ image_url: "data:image/png;base64,QUJD" }, { image_url: "data:image/png;base64,REVG" }],
+      },
+      modelInfo: { provider: "ai2w", model: "banana-pro" },
+      credentials: { apiKey: "test-token", providerSpecificData: { baseUrl: "http://localhost:3000" } },
+    });
+
+    expect(result.success).toBe(true);
+    const [url, opts] = global.fetch.mock.calls[0];
+    const sentBody = JSON.parse(opts.body);
+    expect(sentBody.images).toEqual(["QUJD", "REVG"]);
+    expect(sentBody.aspectRatio).toBe("16:9");
+  });
+
+  it("normalizes comma-separated string images to base64 array", async () => {
+    global.fetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ success: true, media: [{ url: "https://example.com/out.png" }] }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    const result = await handleImageGenerationCore({
+      body: {
+        prompt: "A cat",
+        aspectRatio: "16:9",
+        images: "QUJD, REVG",
+      },
+      modelInfo: { provider: "ai2w", model: "banana-pro" },
+      credentials: { apiKey: "test-token", providerSpecificData: { baseUrl: "http://localhost:3000" } },
+    });
+
+    expect(result.success).toBe(true);
+    const [url, opts] = global.fetch.mock.calls[0];
+    const sentBody = JSON.parse(opts.body);
+    expect(sentBody.images).toEqual(["QUJD", "REVG"]);
+    expect(sentBody.aspectRatio).toBe("16:9");
   });
 
   it("handles video creation for veo3 via /api/labs/generate-video and polling via /api/labs/poll-batch", async () => {
@@ -91,7 +141,7 @@ describe("AI2W (AIVideoWorkflow) provider", () => {
       rawBody: JSON.stringify({
         prompt: "A cinematic monkey walking through a neon city",
         aspectRatio: "16:9",
-        images: ["base64_image_data"],
+        images: [{ image_url: "base64_image_data" }],
       }),
       credentials: { apiKey: "test-token", providerSpecificData: { baseUrl: "http://localhost:3000" } },
     });
@@ -105,6 +155,7 @@ describe("AI2W (AIVideoWorkflow) provider", () => {
     const sentCreateBody = JSON.parse(createOpts.body);
     expect(sentCreateBody.model).toBe("veo-3.1-lite-relax-ultra");
     expect(sentCreateBody.mode).toBe("image-to-video");
+    expect(sentCreateBody.images).toEqual(["base64_image_data"]);
 
     // 2. Poll job
     global.fetch.mockResolvedValueOnce(
@@ -160,7 +211,7 @@ describe("AI2W (AIVideoWorkflow) provider", () => {
       model: "grok-video",
       rawBody: JSON.stringify({
         prompt: "Grok cinematic video",
-        images: ["base64"],
+        images: [{ image_url: "base64" }],
         aspectRatio: "16:9",
         videoLength: 10,
         resolutionName: "720p",
@@ -178,5 +229,35 @@ describe("AI2W (AIVideoWorkflow) provider", () => {
     const sentBody = JSON.parse(opts.body);
     expect(sentBody.videoLength).toBe(10);
     expect(sentBody.resolutionName).toBe("720p");
+    expect(sentBody.images).toEqual(["base64"]);
+  });
+
+  it("normalizes comma-separated string images for video", async () => {
+    global.fetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ success: true, pollingId: "lab_video_xyz" }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    const createRes = await handleVideoProxyCore({
+      provider: "ai2w",
+      action: "generations",
+      model: "veo3",
+      rawBody: JSON.stringify({
+        prompt: "A cat",
+        aspectRatio: "9:16",
+        mode: "image-to-video",
+        images: "https://example.com/a.png, https://example.com/b.png",
+      }),
+      credentials: { apiKey: "test-token", providerSpecificData: { baseUrl: "http://localhost:3000" } },
+    });
+
+    expect(createRes.success).toBe(true);
+    const [url, opts] = global.fetch.mock.calls[0];
+    expect(url).toBe("http://localhost:3000/api/labs/generate-video");
+    const sentBody = JSON.parse(opts.body);
+    expect(sentBody.mode).toBe("image-to-video");
+    expect(sentBody.images).toEqual(["https://example.com/a.png", "https://example.com/b.png"]);
   });
 });

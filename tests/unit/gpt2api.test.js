@@ -42,8 +42,7 @@ describe("GPT2API provider", () => {
     const result = await handleImageGenerationCore({
       body: {
         prompt: "Mèo phi hành gia",
-        size: "1024x1024",
-        quality: "auto",
+        aspectRatio: "1:1",
         response_format: "b64_json",
         images: [{ image_url: "https://example.com/input.png" }],
       },
@@ -61,7 +60,38 @@ describe("GPT2API provider", () => {
     const sentBody = JSON.parse(options.body);
     expect(sentBody.model).toBe("gpt-image-2");
     expect(sentBody.prompt).toBe("Mèo phi hành gia");
+    expect(sentBody.size).toBe("1024x1024");
     expect(sentBody.images).toEqual([{ image_url: "https://example.com/input.png" }]);
+    // bodyFields whitelist strips quality/style/background/image_detail
+    expect(sentBody.quality).toBeUndefined();
+    expect(sentBody.aspectRatio).toBeUndefined();
+  });
+
+  it("normalizes comma-separated string images and passes aspect-ratio size", async () => {
+    global.fetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ created: 1700000000, data: [{ url: "https://example.com/out.png" }] }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    const result = await handleImageGenerationCore({
+      body: {
+        prompt: "Mèo phi hành gia",
+        aspectRatio: "16:9",
+        images: "https://example.com/a.png, https://example.com/b.png",
+      },
+      modelInfo: { provider: "gpt2api", model: "gpt-image-2" },
+      credentials: { apiKey: "test-token" },
+    });
+
+    expect(result.success).toBe(true);
+    const sentBody = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(sentBody.size).toBe("1920x1080");
+    expect(sentBody.images).toEqual([{ image_url: "https://example.com/a.png" }, { image_url: "https://example.com/b.png" }]);
+    expect(sentBody.quality).toBeUndefined();
+    expect(sentBody.style).toBeUndefined();
+    expect(sentBody.aspectRatio).toBeUndefined();
   });
 
   it("handles custom dynamic baseUrl for image and audio", async () => {

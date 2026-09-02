@@ -1,4 +1,4 @@
-import { nowSec, sizeToAspectRatio } from "./_base.js";
+import { nowSec, sizeToAspectRatio, urlToBase64 } from "./_base.js";
 import { PROVIDER_MEDIA } from "../../providers/index.js";
 
 const DEFAULT_BASE_URL = "http://localhost:3000";
@@ -23,13 +23,31 @@ const ai2wAdapter = {
     if (key) headers["Authorization"] = `Bearer ${key}`;
     return headers;
   },
-  buildBody: (model, body) => {
+  buildBody: async (model, body) => {
     const aspectRatio = body.aspectRatio || (body.size ? sizeToAspectRatio(body.size) : "16:9");
-    const images = Array.isArray(body.images)
-      ? body.images.map((img) => (typeof img === "object" && img?.image_url ? img.image_url : img)).filter(Boolean)
-      : body.image
-      ? [body.image]
-      : [];
+
+    // Normalize to array of image references (URL or base64)
+    let refs = [];
+    if (Array.isArray(body.images)) {
+      refs = body.images.map((img) => typeof img === "object" ? (img.image_url ?? img.url ?? "") : img).filter(Boolean);
+    } else if (typeof body.images === "string" && body.images.trim()) {
+      refs = body.images.split(",").map((s) => s.trim()).filter(Boolean);
+    } else if (body.image) {
+      refs = [body.image];
+    }
+
+    // ai2w labs expects plain base64 string array, not [{image_url}]
+    const images = [];
+    for (const ref of refs) {
+      if (ref.startsWith("data:")) {
+        const comma = ref.indexOf(",");
+        images.push(comma !== -1 ? ref.slice(comma + 1) : ref);
+      } else if (ref.startsWith("http://") || ref.startsWith("https://")) {
+        try { images.push(await urlToBase64(ref)); } catch { /* skip unfetchable refs */ }
+      } else {
+        images.push(ref); // raw base64
+      }
+    }
 
     const m = (model || "").toLowerCase();
     if (m === "grok") {

@@ -20,9 +20,9 @@ export default {
     baseUrl: "http://localhost:3000/api/labs/generate-image",
   },
   models: [
-    { id: "banana-2", name: "Banana 2", params: ["aspectRatio", "size", "images"], kind: "image" },
-    { id: "banana-pro", name: "Banana Pro", params: ["aspectRatio", "size", "images"], kind: "image" },
-    { id: "grok", name: "Grok Image", params: ["aspectRatio", "size", "images"], kind: "image" },
+    { id: "banana-2", name: "Banana 2", params: ["aspectRatio", "images"], kind: "image" },
+    { id: "banana-pro", name: "Banana Pro", params: ["aspectRatio", "images"], kind: "image" },
+    { id: "grok", name: "Grok Image", params: ["aspectRatio", "images"], kind: "image" },
     { id: "veo3", name: "Veo 3 Video", params: ["aspectRatio", "mode", "images"], kind: "video" },
     { id: "grok-video", name: "Grok Video", params: ["aspectRatio", "videoLength", "resolutionName", "images"], kind: "video" },
   ],

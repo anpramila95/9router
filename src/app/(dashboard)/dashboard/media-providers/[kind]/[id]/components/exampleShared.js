@@ -80,3 +80,41 @@ export const KIND_EXAMPLE_CONFIG = {
     defaultResponse: `{\n  "data": [\n    { "url": "...", "format": "mp3" }\n  ]\n}`,
   },
 };
+
+// Per-provider extraFields overrides (merged over KIND_EXAMPLE_CONFIG by GenericExampleCard)
+export const PROVIDER_EXTRA_FIELDS = {
+  gpt2api: {
+    image: [
+      { key: "n", label: "n", type: "number", default: 1, min: 1, max: 4 },
+      { key: "aspectRatio", label: "Aspect Ratio", type: "select", default: "1:1", options: ["1:1", "16:9", "9:16", "4:3", "3:4"] },
+      { key: "images", label: "Reference Image", type: "text", default: "", placeholder: "Image URL or base64 (comma-separated for multiple)" },
+      { key: "response_format", label: "Format", type: "select", default: "", options: ["", "url", "b64_json"] },
+    ],
+  },
+  ai2w: {
+    image: [
+      { key: "aspectRatio", label: "Aspect Ratio", type: "select", default: "1:1", options: ["1:1", "16:9", "9:16", "4:3", "3:4"] },
+      { key: "images", label: "Reference Images", type: "text", default: "", placeholder: "Image URLs or base64 (comma-separated for multiple)" },
+    ],
+    video: [
+      { key: "aspectRatio", label: "Aspect Ratio", type: "select", default: "16:9", options: ["16:9", "9:16", "1:1"] },
+      { key: "mode", label: "Mode", type: "select", default: "text-to-video", options: ["text-to-video", "image-to-video", "reference-to-video"] },
+      { key: "images", label: "Reference Images", type: "text", default: "", placeholder: "Required for image/reference-to-video. URLs or base64 (comma-separated)" },
+      { key: "videoLength", label: "Duration (s)", type: "number", default: 10, min: 5, max: 60 },
+      { key: "resolutionName", label: "Resolution", type: "select", default: "720p", options: ["720p", "1080p", "480p"] },
+    ],
+  },
+  aivideoworkflow: {
+    image: [
+      { key: "aspectRatio", label: "Aspect Ratio", type: "select", default: "1:1", options: ["1:1", "16:9", "9:16", "4:3", "3:4"] },
+      { key: "images", label: "Reference Images", type: "text", default: "", placeholder: "Image URLs or base64 (comma-separated for multiple)" },
+    ],
+    video: [
+      { key: "aspectRatio", label: "Aspect Ratio", type: "select", default: "16:9", options: ["16:9", "9:16", "1:1"] },
+      { key: "mode", label: "Mode", type: "select", default: "text-to-video", options: ["text-to-video", "image-to-video", "reference-to-video"] },
+      { key: "images", label: "Reference Images", type: "text", default: "", placeholder: "Required for image/reference-to-video. URLs or base64 (comma-separated)" },
+      { key: "videoLength", label: "Duration (s)", type: "number", default: 10, min: 5, max: 60 },
+      { key: "resolutionName", label: "Resolution", type: "select", default: "720p", options: ["720p", "1080p", "480p"] },
+    ],
+  },
+};
