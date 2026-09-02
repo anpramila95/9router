@@ -32,6 +32,9 @@ vi.mock("@/lib/localDb", () => ({
   getComboByName: vi.fn(async () => null),
   getModelAliases: vi.fn(async () => ({})),
   getProviderNodes: vi.fn(async () => []),
+  getProviderConnectionById: vi.fn(async () => null),
+  saveVideoJob: vi.fn(async () => {}),
+  getVideoJob: vi.fn(async () => null),
 }));
 vi.mock("@/sse/utils/logger.js", () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }));
 
@@ -207,6 +210,24 @@ describe("handleVideoGet", () => {
       "xai", null, null, expect.objectContaining({ preferredConnectionId: "conn-5" })
     );
     expect(global.fetch.mock.calls[0][0]).toBe("https://api.x.ai/v1/videos/req-1");
+  });
+
+  it("recovers the creating account from the job record when x-connection-id is absent", async () => {
+    authMocks.getProviderCredentials.mockResolvedValueOnce(account({ connectionId: "conn-7" }));
+    global.fetch.mockResolvedValueOnce(jsonResponse({ status: "pending" }));
+
+    const localDbMock = await import("@/lib/localDb");
+    localDbMock.getVideoJob.mockResolvedValueOnce({ connectionId: "conn-7", provider: "ai2w" });
+    localDbMock.getProviderConnectionById.mockResolvedValueOnce({ provider: "ai2w" });
+
+    const req = new Request("http://localhost/v1/videos/req-job-1");
+    const res = await handleVideoGet(req, "req-job-1");
+
+    expect(res.status).toBe(200);
+    expect(authMocks.getProviderCredentials).toHaveBeenCalledWith(
+      "ai2w", null, null, expect.objectContaining({ preferredConnectionId: "conn-7" })
+    );
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
   it("records the failure when polling hits a terminal auth error", async () => {

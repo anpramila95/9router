@@ -4,8 +4,9 @@ import {
   clearAccountError,
   extractApiKey,
   isValidApiKey,
+  checkApiKeyTokenLimit,
 } from "../services/auth.js";
-import { getSettings } from "@/lib/localDb";
+import { getSettings, saveVideoJob } from "@/lib/localDb";
 import { getModelInfo } from "../services/model.js";
 import { handleVideoProxyCore, getVideoConfig, sanitizeSecrets } from "open-sse/handlers/videoCore.js";
 import { errorResponse, unavailableResponse } from "open-sse/utils/error.js";
@@ -161,6 +162,17 @@ export async function handleVideoCreate(request, action) {
     });
 
     if (result.success) {
+      // Persist the account that created the job so later GET polls can
+      // recover it from the request id alone — no x-connection-id round-trip.
+      const bodyText = await result.response.text();
+      let requestId = null;
+      try {
+        const parsed = JSON.parse(bodyText);
+        requestId = parsed?.request_id || parsed?.pollingId || null;
+      } catch { /* non-JSON body — nothing to pin */ }
+      if (requestId) {
+        await saveVideoJob(requestId, { connectionId: credentials.connectionId, provider });
+      }
       saveRequestUsage({
         provider,
         model,
@@ -172,7 +184,10 @@ export async function handleVideoCreate(request, action) {
       }).catch(() => {});
       await clearAccountError(credentials.connectionId, credentials, model);
       log.info("VIDEO", `${provider.toUpperCase()} | ${action} accepted (connection ${credentials.connectionId})`);
-      return withConnectionHeader(result.response, credentials.connectionId);
+      return withConnectionHeader(
+        new Response(bodyText, { status: result.response.status, headers: result.response.headers }),
+        credentials.connectionId
+      );
     }
 
     // Record the failure (dashboard shows lastError/errorCode → user sees re-auth is needed)
@@ -203,13 +218,25 @@ export async function handleVideoGet(request, requestId) {
   if (!requestId) return errorResponse(HTTP_STATUS.BAD_REQUEST, "Missing video request id");
 
   const url = new URL(request.url);
-  const preferredConnectionId = request.headers.get("x-connection-id") || null;
+  let preferredConnectionId = request.headers.get("x-connection-id") || null;
   const providerParam = url.searchParams.get("provider");
   let provider = providerParam || DEFAULT_VIDEO_PROVIDER;
   if (preferredConnectionId) {
     const { getProviderConnectionById } = await import("@/lib/localDb");
     const conn = await getProviderConnectionById(preferredConnectionId);
     if (conn?.provider) provider = conn.provider;
+  } else {
+    // No pinning header: recover the creating account from the job record
+    // persisted at create time, so polling works without x-connection-id.
+    const { getProviderConnectionById, getVideoJob } = await import("@/lib/localDb");
+    const job = await getVideoJob(requestId);
+    if (job?.connectionId) {
+      const conn = await getProviderConnectionById(job.connectionId);
+      if (conn) {
+        provider = conn.provider || job.provider || provider;
+        preferredConnectionId = job.connectionId;
+      }
+    }
   }
 
   const credentials = await getProviderCredentials(provider, null, null, { preferredConnectionId });

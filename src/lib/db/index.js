@@ -67,6 +67,11 @@ export {
   saveRequestDetail, getRequestDetails, getRequestDetailById, getDistinctProviders,
 } from "./repos/requestDetailsRepo.js";
 
+// Video job → connection mapping (for polling without x-connection-id)
+export {
+  saveVideoJob, getVideoJob,
+} from "./repos/videoJobsRepo.js";
+
 // Export/import full DB
 export async function exportDb() {
   const db = await getAdapter();
