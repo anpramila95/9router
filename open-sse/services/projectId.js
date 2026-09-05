@@ -238,7 +238,11 @@ async function onboardUser(accessToken, tierID, externalSignal, endpoints, provi
                     console.log(`[ProjectId] Successfully onboarded, project ID: ${projectId}`);
                     return projectId;
                 }
-                throw new Error("onboardUser done but no project_id in response");
+                const responseKeys = data.response && typeof data.response === "object"
+                    ? Object.keys(data.response).join(",")
+                    : "none";
+                console.warn(`[ProjectId] onboardUser done without project ID; response keys: ${responseKeys || "none"}`);
+                return null;
             }
 
             // Server not done yet – wait and retry
@@ -291,18 +295,23 @@ function extractProjectId(data) {
  * Extract project ID from onboardUser response.
  */
 function extractProjectIdFromOnboard(data) {
-    if (!data?.response) return null;
+    const response = data?.response;
+    const candidates = [
+        response?.cloudaicompanionProject,
+        response?.projectId,
+        response?.project_id,
+        response?.project,
+        data?.cloudaicompanionProject,
+        data?.projectId,
+        data?.project_id,
+    ];
 
-    const project = data.response.cloudaicompanionProject;
-
-    if (typeof project === "string") {
-        const id = project.trim();
-        if (id) return id;
-    }
-
-    if (project && typeof project === "object") {
-        const id = project.id;
-        if (typeof id === "string" && id.trim()) return id.trim();
+    for (const project of candidates) {
+        if (typeof project === "string" && project.trim()) return project.trim();
+        if (!project || typeof project !== "object") continue;
+        for (const key of ["id", "projectId", "project_id", "name"]) {
+            if (typeof project[key] === "string" && project[key].trim()) return project[key].trim();
+        }
     }
 
     return null;
