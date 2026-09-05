@@ -15,11 +15,11 @@ export function getComboModelsFromData(modelStr, combosData) {
   // Handle both array and object formats
   const combos = Array.isArray(combosData) ? combosData : (combosData?.combos || []);
   
-  const combo = combos.find(c => c.name === modelStr);
-  if (combo && combo.models && combo.models.length > 0) {
-    return combo.models;
-  }
-  return null;
+  const combo = combos.find((c) => c.name === modelStr);
+  if (!combo) return null;
+  return (combo.models || [])
+    .filter((item) => item.active !== false)
+    .map((item) => item.model || item);
 }
 
 /**
