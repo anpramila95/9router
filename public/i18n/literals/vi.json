@@ -121,6 +121,8 @@
   "Database Location": "Vị trí cơ sở dữ liệu",
   "Download Backup": "Tải xuống bản sao lưu",
   "Import Backup": "Nhập bản sao lưu",
+  "Export Connections": "Xuất Connections",
+  "Import Connections": "Nhập Connections",
   "Database backup downloaded": "Đã tải xuống bản sao lưu cơ sở dữ liệu",
   "Database imported successfully": "Đã nhập cơ sở dữ liệu thành công",
   "Security": "Bảo mật",

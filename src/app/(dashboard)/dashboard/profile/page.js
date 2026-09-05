@@ -72,6 +72,8 @@ export default function ProfilePage() {
   const certFileRef = useRef(null);
 
   const importFileRef = useRef(null);
+  const importConnectionsFileRef = useRef(null);
+  const pendingConnectionsImportRef = useRef(null);
   const [proxyForm, setProxyForm] = useState({
     outboundProxyEnabled: false,
     outboundProxyUrl: "",
@@ -268,6 +270,18 @@ export default function ProfilePage() {
       }
     } catch (err) {
       console.error("Failed to update settings:", err);
+    }
+  };
+
+  const updateSettings = async (patch) => {
+    setSettings((prev) => ({ ...prev, ...patch }));
+    try {
+      const res = await fetch("/api/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) });
+      if (!res.ok) throw new Error(`Settings update failed: ${res.status}`);
+    } catch (error) {
+      console.error(error);
+      const current = await fetch("/api/settings").then((res) => res.ok ? res.json() : null).catch(() => null);
+      if (current) setSettings(current);
     }
   };
 
@@ -725,12 +739,98 @@ export default function ProfilePage() {
     }
   };
 
+  const handleExportConnections = async (password) => {
+    setDbLoading(true);
+    setDbStatus({ type: "", message: "" });
+    try {
+      const res = await fetch("/api/providers/export", {
+        headers: { "x-9r-password": password },
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to export connections");
+      }
+
+      const payload = await res.json();
+      const content = JSON.stringify(payload, null, 2);
+      const blob = new Blob([content], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      const stamp = new Date().toISOString().replace(/[.:]/g, "-");
+      anchor.href = url;
+      anchor.download = `9router-connections-${stamp}.json`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(url);
+
+      const count = payload.connections?.length || 0;
+      setDbStatus({ type: "success", message: `Exported ${count} connection(s) successfully` });
+    } catch (err) {
+      setDbStatus({ type: "error", message: err.message || "Failed to export connections" });
+    } finally {
+      setDbLoading(false);
+    }
+  };
+
+  const handleImportConnections = (event) => {
+    const file = event.target.files?.[0];
+    if (importConnectionsFileRef.current) importConnectionsFileRef.current.value = "";
+    if (!file) return;
+    pendingConnectionsImportRef.current = file;
+    setDbStatus({ type: "", message: "" });
+    setDbAuth({ open: true, mode: "import-connections", password: "" });
+  };
+
+  const runImportConnections = async (password) => {
+    const file = pendingConnectionsImportRef.current;
+    if (!file) return;
+    setDbLoading(true);
+    try {
+      const raw = await file.text();
+      let payload;
+      try {
+        payload = JSON.parse(raw);
+      } catch {
+        throw new Error("Invalid JSON format");
+      }
+
+      const rawList = Array.isArray(payload) ? payload : (Array.isArray(payload.connections) ? payload.connections : null);
+      if (!rawList || !rawList.length) {
+        throw new Error("No connections array found in JSON");
+      }
+
+      const res = await fetch("/api/providers/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ connections: rawList, password }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to import connections");
+      }
+
+      setDbStatus({
+        type: "success",
+        message: `Imported ${data.imported || 0} connection(s) successfully${data.failed > 0 ? ` (${data.failed} failed/skipped)` : ""}`,
+      });
+    } catch (err) {
+      setDbStatus({ type: "error", message: err.message || "Invalid connections file" });
+    } finally {
+      pendingConnectionsImportRef.current = null;
+      setDbLoading(false);
+    }
+  };
+
   // Confirm password modal, then run export or import.
   const handleDbAuthConfirm = async () => {
     const { mode, password } = dbAuth;
     setDbAuth({ open: false, mode: "", password: "" });
     if (mode === "export") await handleExportDatabase(password);
     else if (mode === "import") await runImportDatabase(password);
+    else if (mode === "export-connections") await handleExportConnections(password);
+    else if (mode === "import-connections") await runImportConnections(password);
   };
 
   const observabilityEnabled = settings.enableObservability === true;
@@ -800,31 +900,58 @@ export default function ProfilePage() {
                 <p className="text-xs sm:text-sm text-text-muted font-mono break-all">~/.9router/db/data.sqlite</p>
               </div>
             </div>
-            <div className="flex flex-col sm:flex-row gap-2">
-              <Button
-                variant="secondary"
-                icon="download"
-                onClick={() => setDbAuth({ open: true, mode: "export", password: "" })}
-                loading={dbLoading}
-                className="w-full sm:w-auto"
-              >
-                Download Backup
-              </Button>
-              <Button
-                variant="outline"
-                icon="upload"
-                onClick={() => importFileRef.current?.click()}
-                disabled={dbLoading}
-                className="w-full sm:w-auto"
-              >
-                Import Backup
-              </Button>
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="secondary"
+                  icon="download"
+                  onClick={() => setDbAuth({ open: true, mode: "export", password: "" })}
+                  loading={dbLoading}
+                  className="w-full sm:w-auto"
+                >
+                  Download Backup
+                </Button>
+                <Button
+                  variant="outline"
+                  icon="upload"
+                  onClick={() => importFileRef.current?.click()}
+                  disabled={dbLoading}
+                  className="w-full sm:w-auto"
+                >
+                  Import Backup
+                </Button>
+                <Button
+                  variant="secondary"
+                  icon="download"
+                  onClick={() => setDbAuth({ open: true, mode: "export-connections", password: "" })}
+                  loading={dbLoading}
+                  className="w-full sm:w-auto"
+                >
+                  Export Connections
+                </Button>
+                <Button
+                  variant="outline"
+                  icon="upload"
+                  onClick={() => importConnectionsFileRef.current?.click()}
+                  disabled={dbLoading}
+                  className="w-full sm:w-auto"
+                >
+                  Import Connections
+                </Button>
+              </div>
               <input
                 ref={importFileRef}
                 type="file"
                 accept="application/json,.json"
                 className="hidden"
                 onChange={handleImportDatabase}
+              />
+              <input
+                ref={importConnectionsFileRef}
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                onChange={handleImportConnections}
               />
             </div>
             {dbStatus.message && (
@@ -1488,6 +1615,15 @@ export default function ProfilePage() {
               />
             </div>
 
+            <div className="flex items-center justify-between gap-4 pt-4 border-t border-border/50">
+              <div><p className="font-medium">Combo Inactive Model Checks</p><p className="text-sm text-text-muted">Automatically retry inactive models</p></div>
+              <Toggle checked={settings.comboHealthCheckEnabled !== false} onChange={(next) => updateSettings({ comboHealthCheckEnabled: next })} disabled={loading} />
+            </div>
+            <div className="flex items-center justify-between gap-4 pt-2">
+              <div><p className="font-medium">Check Interval (minutes)</p></div>
+              <Input type="number" min="1" max="1440" value={settings.comboHealthCheckIntervalMinutes || 15} onChange={(e) => updateSettings({ comboHealthCheckIntervalMinutes: Math.max(1, Number(e.target.value) || 15) })} disabled={loading} className="w-20 text-center" />
+            </div>
+
             {/* Combo Sticky Round Robin Limit */}
             {settings.comboStrategy === "round-robin" && (
               <div className="flex items-center justify-between pt-2 border-t border-border/50">
@@ -1680,7 +1816,12 @@ export default function ProfilePage() {
         }
       >
         <p className="text-text-muted mb-3 text-sm">
-          Enter your current password to {dbAuth.mode === "export" ? "export" : "import"} the database.
+          Enter your current password to {
+            dbAuth.mode === "export" ? "export the database" :
+            dbAuth.mode === "import" ? "import the database" :
+            dbAuth.mode === "export-connections" ? "export connections" :
+            dbAuth.mode === "import-connections" ? "import connections" : "proceed"
+          }.
         </p>
         <Input
           type="password"

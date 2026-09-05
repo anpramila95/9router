@@ -39,6 +39,7 @@ function loadModelCaps() {
 
 // Resolve caps from a "provider/model" string or a bare model id.
 function resolveCaps(byFull, byId, key) {
+  if (typeof key === "object") key = key.model || key.id;
   if (!key) return null;
   if (byFull[key]) return byFull[key];
   const bare = key.includes("/") ? key.slice(key.indexOf("/") + 1) : key;

@@ -45,13 +45,9 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
     if (FREE_PROVIDERS[providerId]?.noAuth) {
       const settings = await getSettings();
       const override = (settings.providerStrategies || {})[providerId] || {};
-      const strategy = override.rotateStrategy || "none";
-      let pickedId = override.proxyPoolId || null;
-      if (strategy !== "none") {
-        const allPools = await getProxyPools({ isActive: true });
-        const poolIds = allPools.filter(p => p.proxyUrl).map(p => p.id);
-        pickedId = pickProxyPoolId(poolIds, strategy, providerId);
-      }
+      const strategy = override.rotateStrategy || "random";
+      // Rotation selects proxy URL inside selected pool. Keep selected pool binding.
+      const pickedId = override.proxyPoolId || null;
       const resolvedProxy = await resolveConnectionProxyConfig({ proxyPoolId: pickedId || "" });
       return {
         id: "noauth",
@@ -63,6 +59,8 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
           connectionProxyUrl: resolvedProxy.connectionProxyUrl,
           connectionNoProxy: resolvedProxy.connectionNoProxy,
           connectionProxyPoolId: resolvedProxy.proxyPoolId || null,
+          proxyRotationStrategy: strategy,
+          connectionProxyUrls: resolvedProxy.proxyPool?.proxyUrls || [],
           vercelRelayUrl: resolvedProxy.vercelRelayUrl || "",
         },
       };
@@ -192,6 +190,8 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
         connectionProxyUrl: resolvedProxy.connectionProxyUrl,
         connectionNoProxy: resolvedProxy.connectionNoProxy,
         connectionProxyPoolId: resolvedProxy.proxyPoolId || null,
+        proxyRotationStrategy: (await getSettings()).providerStrategies?.[providerId]?.rotateStrategy || "random",
+        connectionProxyUrls: resolvedProxy.proxyPool?.proxyUrls || [],
         vercelRelayUrl: resolvedProxy.vercelRelayUrl || "",
       },
       connectionId: connection.id,

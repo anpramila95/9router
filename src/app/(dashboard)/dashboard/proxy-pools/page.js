@@ -20,7 +20,8 @@ function formatDateTime(value) {
 function normalizeFormData(data = {}) {
   return {
     name: data.name || "",
-    proxyUrl: data.proxyUrl || "",
+    proxyUrl: data.proxyUrl || data.proxyUrls?.[0] || "",
+    proxyUrls: Array.isArray(data.proxyUrls) ? data.proxyUrls.join("\n") : (data.proxyUrl || ""),
     noProxy: data.noProxy || "",
     isActive: data.isActive !== false,
     strictProxy: data.strictProxy === true,
@@ -108,7 +109,8 @@ export default function ProxyPoolsPage() {
   const handleSave = async () => {
     const payload = {
       name: formData.name.trim(),
-      proxyUrl: formData.proxyUrl.trim(),
+      proxyUrl: formData.proxyUrls.split("\n").map((url) => url.trim()).filter(Boolean)[0] || formData.proxyUrl.trim(),
+      proxyUrls: formData.proxyUrls.split("\n").map((url) => url.trim()).filter(Boolean),
       noProxy: formData.noProxy.trim(),
       isActive: formData.isActive === true,
       strictProxy: formData.strictProxy === true,
@@ -996,12 +998,17 @@ export default function ProxyPoolsPage() {
             onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
             placeholder="Office Proxy"
           />
-          <Input
-            label="Proxy URL"
-            value={formData.proxyUrl}
-            onChange={(e) => setFormData((prev) => ({ ...prev, proxyUrl: e.target.value }))}
-            placeholder="http://127.0.0.1:7897"
-          />
+          <div>
+            <label className="mb-1 block text-sm font-medium">Proxy URLs</label>
+            <textarea
+              value={formData.proxyUrls}
+              onChange={(e) => setFormData((prev) => ({ ...prev, proxyUrls: e.target.value, proxyUrl: e.target.value.split("\n")[0] || "" }))}
+              placeholder="http://127.0.0.1:7897\nhttp://proxy-2:8080\nhttp://proxy-3:8080"
+              rows={4}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+            />
+            <p className="mt-1 text-xs text-text-muted">One proxy per line. Random or round-robin strategy applies at provider settings.</p>
+          </div>
           <Input
             label="No Proxy"
             value={formData.noProxy}
@@ -1038,7 +1045,7 @@ export default function ProxyPoolsPage() {
             <Button
               fullWidth
               onClick={handleSave}
-              disabled={!formData.name.trim() || !formData.proxyUrl.trim() || saving}
+              disabled={!formData.name.trim() || !formData.proxyUrls.trim() || saving}
             >
               {saving ? "Saving..." : "Save"}
             </Button>

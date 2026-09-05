@@ -11,7 +11,10 @@ const VALID_PROXY_TYPES = ["http", "vercel", "cloudflare", "deno"];
 
 function normalizeProxyPoolInput(body = {}) {
   const name = typeof body?.name === "string" ? body.name.trim() : "";
-  const proxyUrl = typeof body?.proxyUrl === "string" ? body.proxyUrl.trim() : "";
+  const proxyUrls = Array.isArray(body?.proxyUrls)
+    ? body.proxyUrls.map((url) => String(url).trim()).filter(Boolean)
+    : (typeof body?.proxyUrls === "string" ? body.proxyUrls.split("\n").map((url) => url.trim()).filter(Boolean) : []);
+  const proxyUrl = proxyUrls[0] || (typeof body?.proxyUrl === "string" ? body.proxyUrl.trim() : "");
   const noProxy = typeof body?.noProxy === "string" ? body.noProxy.trim() : "";
   const isActive = body?.isActive === undefined ? true : body.isActive === true;
   const strictProxy = body?.strictProxy === true;
@@ -25,7 +28,7 @@ function normalizeProxyPoolInput(body = {}) {
     return { error: "Proxy URL is required" };
   }
 
-  return { name, proxyUrl, noProxy, isActive, strictProxy, type };
+  return { name, proxyUrl, proxyUrls: proxyUrls.length ? proxyUrls : [proxyUrl], noProxy, isActive, strictProxy, type };
 }
 
 function buildUsageMap(connections = []) {

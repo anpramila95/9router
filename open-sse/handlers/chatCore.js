@@ -308,6 +308,9 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
   const proxyOptions = {
     connectionProxyEnabled: credentials?.providerSpecificData?.connectionProxyEnabled === true,
     connectionProxyUrl: credentials?.providerSpecificData?.connectionProxyUrl || "",
+    connectionProxyUrls: credentials?.providerSpecificData?.connectionProxyUrls || [],
+    proxyRotationStrategy: credentials?.providerSpecificData?.proxyRotationStrategy || "random",
+    connectionProxyPoolId: credentials?.providerSpecificData?.connectionProxyPoolId || "default",
     connectionNoProxy: credentials?.providerSpecificData?.connectionNoProxy || "",
     vercelRelayUrl: credentials?.providerSpecificData?.vercelRelayUrl || "",
   };

@@ -16,6 +16,9 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
   const boundProxyPool = boundProxyPoolId ? proxyPoolMap.get(boundProxyPoolId) : null;
   const hasLegacyProxy = connection.providerSpecificData?.connectionProxyEnabled === true && !!connection.providerSpecificData?.connectionProxyUrl;
   const hasAnyProxy = !!boundProxyPoolId || hasLegacyProxy;
+  const proxyUrlCount = boundProxyPool
+    ? (Array.isArray(boundProxyPool.proxyUrls) && boundProxyPool.proxyUrls.length ? boundProxyPool.proxyUrls.length : (boundProxyPool.proxyUrl ? 1 : 0))
+    : (hasLegacyProxy ? 1 : 0);
   const proxyDisplayText = boundProxyPool
     ? `Pool: ${boundProxyPool.name}`
     : boundProxyPoolId
@@ -196,6 +199,11 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
               <span className="max-w-full truncate text-[11px] text-text-muted sm:max-w-[420px]" title={proxyDisplayText}>
                 {proxyDisplayText}
               </span>
+              {hasAnyProxy && (
+                <Badge variant={proxyBadgeVariant} size="sm">
+                  {proxyUrlCount} proxy{proxyUrlCount === 1 ? "" : "ies"}
+                </Badge>
+              )}
               {maskedProxyUrl && (
                 <code className="max-w-full truncate rounded bg-black/5 px-1 py-0.5 font-mono text-[10px] text-text-muted dark:bg-white/5 sm:max-w-[260px]">
                   {maskedProxyUrl}

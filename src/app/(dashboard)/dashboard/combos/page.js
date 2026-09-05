@@ -315,8 +315,8 @@ function ComboCard({ combo, getCaps, activeProviders = [], copied, onCopy, onEdi
               ) : (
                 combo.models.slice(0, 3).map((model, index) => (
                   <code key={index} className="inline-flex items-center gap-1 rounded bg-black/5 px-1.5 py-0.5 font-mono text-xs text-text-muted dark:bg-white/5">
-                    <span>{model}</span>
-                    <CapacityBadges caps={getCaps?.(model)} />
+                    <span>{model.model || model}</span>
+                    <CapacityBadges caps={getCaps?.(model.model || model)} />
                   </code>
                 ))
               )}
@@ -334,7 +334,7 @@ function ComboCard({ combo, getCaps, activeProviders = [], copied, onCopy, onEdi
                   title="Pick the model that fuses panel answers"
                 >
                   <span className="material-symbols-outlined text-[13px]">gavel</span>
-                  <span className="truncate">{judge || `Auto — ${combo.models[0] || "first model"}`}</span>
+                  <span className="truncate">{judge || `Auto — ${combo.models[0]?.model || combo.models[0] || "first model"}`}</span>
                 </button>
                 {judge && (
                   <button
@@ -552,7 +552,9 @@ function CapacityAdapterCap({ cap, entry, onChange, activeProviders, getCaps }) 
   );
 }
 
-function ModelItem({ id, index, model, isFirst, isLast, onEdit, onMoveUp, onMoveDown, onRemove }) {
+function ModelItem({ id, index, model, isFirst, isLast, onEdit, onToggle, onMoveUp, onMoveDown, onRemove }) {
+  const inactive = typeof model !== "string" && model.active === false;
+  const modelName = typeof model === "string" ? model : model.model;
   const { attributes, listeners, setNodeRef, transform, isDragging } = useSortable({ id });
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -561,17 +563,17 @@ function ModelItem({ id, index, model, isFirst, isLast, onEdit, onMoveUp, onMove
     zIndex: isDragging ? 999 : undefined,
   };
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(model);
+  const [draft, setDraft] = useState(modelName);
   const commit = () => {
     const trimmed = draft.trim();
-    if (trimmed && trimmed !== model) onEdit(trimmed);
-    else setDraft(model);
+    if (trimmed && trimmed !== modelName) onEdit(trimmed);
+    else setDraft(modelName);
     setEditing(false);
   };
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter") commit();
-    if (e.key === "Escape") { setDraft(model); setEditing(false); }
+    if (e.key === "Escape") { setDraft(modelName); setEditing(false); }
   };
 
   return (
@@ -610,15 +612,27 @@ function ModelItem({ id, index, model, isFirst, isLast, onEdit, onMoveUp, onMove
         />
       ) : (
         <div
-          className="min-w-0 flex-1 cursor-text truncate rounded px-1.5 py-0.5 font-mono text-xs text-text-main hover:bg-black/5 dark:hover:bg-white/5"
+          className={`min-w-0 flex-1 cursor-text truncate rounded px-1.5 py-0.5 font-mono text-xs ${inactive ? "text-text-muted line-through" : "text-text-main"} hover:bg-black/5 dark:hover:bg-white/5`}
           onClick={() => setEditing(true)}
-          title="Click to edit"
+          title={inactive ? model.lastError || "Inactive" : "Click to edit"}
         >
-          {model}
+          {modelName}
         </div>
       )}
 
       {/* Priority arrows */}
+      <button
+        type="button"
+        role="switch"
+        aria-checked={!inactive}
+        aria-label={`${inactive ? "Enable" : "Disable"} ${modelName}`}
+        onClick={onToggle}
+        className={`relative h-4 w-8 shrink-0 rounded-full transition-colors ${inactive ? "bg-black/20 dark:bg-white/20" : "bg-primary"}`}
+        title={inactive ? "Enable model" : "Disable model"}
+      >
+        <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform ${inactive ? "left-0.5" : "left-4"}`} />
+      </button>
+      {inactive && <span className="max-w-[120px] truncate text-[10px] text-red-500" title={model.lastError || "Inactive"}>{model.errorCount || 0} errors</span>}
       <div className="flex shrink-0 items-center gap-0.5">
         <button
           onClick={onMoveUp}
@@ -654,6 +668,7 @@ function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, kindF
   // Initialize state with combo values - key prop on parent handles reset on remount
   const [name, setName] = useState(combo?.name || "");
   const [models, setModels] = useState(combo?.models || []);
+  const [errorThreshold, setErrorThreshold] = useState(combo?.errorThreshold || 4);
   const [showModelSelect, setShowModelSelect] = useState(false);
   const [saving, setSaving] = useState(false);
   const [nameError, setNameError] = useState("");
@@ -744,7 +759,7 @@ function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, kindF
   const handleSave = async () => {
     if (!validateName(name)) return;
     setSaving(true);
-    await onSave({ name: name.trim(), models });
+    await onSave({ name: name.trim(), models, errorThreshold: Math.max(1, Number(errorThreshold) || 4) });
     setSaving(false);
   };
 
@@ -793,6 +808,11 @@ function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, kindF
                       model={model}
                       isFirst={index === 0}
                       isLast={index === modelItems.length - 1}
+                      onToggle={() => {
+                        const updated = [...models];
+                        updated[index] = { ...(typeof model === "string" ? { model } : model), active: typeof model === "string" || model.active === false };
+                        setModels(updated);
+                      }}
                       onEdit={(newVal) => {
                         const updated = [...models];
                         updated[index] = newVal;
@@ -817,6 +837,11 @@ function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, kindF
               Add Model
             </button>
           </div>
+
+          <label className="flex items-center gap-2 text-xs text-text-muted">
+            Auto-disable after errors
+            <input type="number" min="1" value={errorThreshold} onChange={(e) => setErrorThreshold(e.target.value)} className="w-16 rounded border border-black/10 bg-white px-2 py-1 text-text-main dark:border-white/10 dark:bg-black/20" />
+          </label>
 
           {/* Actions */}
           <div className="flex flex-col gap-2 pt-1 sm:flex-row">

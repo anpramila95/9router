@@ -4,6 +4,7 @@ import { dbg } from "./debugLog.js";
 
 const originalFetch = globalThis.fetch;
 const proxyDispatchers = new Map();
+const proxyRotationState = new Map();
 
 // ─── TLS fingerprinting via got-scraping (browser-like JA3) ───────────────
 // Disabled: not in use. Kept commented for future re-enable.
@@ -204,13 +205,26 @@ function resolveConnectionProxyUrl(targetUrl, proxyOptions) {
   const enabled = proxyOptions?.enabled === true || proxyOptions?.connectionProxyEnabled === true;
   if (!enabled) return null;
 
-  const proxyUrlRaw = normalizeString(proxyOptions?.url ?? proxyOptions?.connectionProxyUrl);
-  if (!proxyUrlRaw) return null;
+  const proxyUrls = Array.isArray(proxyOptions?.connectionProxyUrls) && proxyOptions.connectionProxyUrls.length
+    ? proxyOptions.connectionProxyUrls.map(normalizeString).filter(Boolean)
+    : [normalizeString(proxyOptions?.url ?? proxyOptions?.connectionProxyUrl)].filter(Boolean);
+  if (!proxyUrls.length) return null;
+  let proxyUrlRaw = proxyUrls[0];
+  if (proxyOptions?.proxyRotationStrategy === "random") {
+    proxyUrlRaw = proxyUrls[Math.floor(Math.random() * proxyUrls.length)];
+  } else if (proxyOptions?.proxyRotationStrategy === "round-robin") {
+    const key = proxyOptions?.connectionProxyPoolId || "default";
+    const index = (proxyRotationState.get(key) || -1) + 1;
+    proxyRotationState.set(key, index % proxyUrls.length);
+    proxyUrlRaw = proxyUrls[index % proxyUrls.length];
+  }
 
   const noProxy = normalizeString(proxyOptions?.noProxy ?? proxyOptions?.connectionNoProxy);
   if (noProxy && shouldBypassByNoProxy(targetUrl, noProxy)) return null;
 
-  return normalizeProxyUrl(proxyUrlRaw);
+  const selectedProxyUrl = normalizeProxyUrl(proxyUrlRaw);
+  dbg("PROXY", `selected=${selectedProxyUrl || "direct"} | strategy=${proxyOptions?.proxyRotationStrategy || "none"} | candidates=${proxyUrls.length}`);
+  return selectedProxyUrl;
 }
 
 /**

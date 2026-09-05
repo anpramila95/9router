@@ -6,6 +6,25 @@ import { checkFallbackError, formatRetryAfter } from "./accountFallback.js";
 import { unavailableResponse } from "../utils/error.js";
 import { getCapabilitiesForModel } from "../providers/capabilities.js";
 import { extractTextContent } from "../translator/formats/gemini.js";
+import { getComboByName, updateCombo } from "@/lib/db/repos/combosRepo.js";
+
+// udpate combo health based on request success/failure
+async function updateComboHealth(comboName, modelStr, success, error) {
+  if (!comboName) return;
+  try {
+    const combo = await getComboByName(comboName);
+    if (!combo) return;
+    const models = combo.models.map((item) => {
+      const current = typeof item === "string" ? { model: item } : item;
+      if ((current.model || item) !== modelStr) return { active: true, errorCount: 0, lastError: null, ...current };
+      const errorCount = success ? 0 : (Number(current.errorCount) || 0) + 1;
+      return { ...current, model: modelStr, active: success || errorCount < combo.errorThreshold, errorCount, lastError: success ? null : String(error || "Request failed").slice(0, 1000) };
+    });
+    await updateCombo(combo.id, { models });
+  } catch (healthError) {
+    // Health tracking must not affect request routing.
+  }
+}
 
 // Hard capabilities = input modalities; missing one drops request data (e.g. image
 // stripped). Must be prioritized. Soft (e.g. search) only degrades a feature.
@@ -252,17 +271,13 @@ export function resetComboRotation(comboName) {
  * @returns {string[]|null} Array of models or null if not a combo
  */
 export function getComboModelsFromData(modelStr, combosData) {
-  // Don't check if it's in provider/model format
   if (modelStr.includes("/")) return null;
-  
-  // Handle both array and object formats
   const combos = Array.isArray(combosData) ? combosData : (combosData?.combos || []);
-  
-  const combo = combos.find(c => c.name === modelStr);
-  if (combo && combo.models && combo.models.length > 0) {
-    return combo.models;
-  }
-  return null;
+  const combo = combos.find((c) => c.name === modelStr);
+  if (!combo) return null;
+  return (combo.models || [])
+    .filter((item) => item.active !== false)
+    .map((item) => item.model || item);
 }
 
 /**
@@ -292,7 +307,7 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
       rotatedModels = reordered;
     }
   }
-  
+
   let lastError = null;
   let earliestRetryAfter = null;
   let lastStatus = null;
@@ -303,10 +318,11 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
 
     try {
       const result = await handleSingleModel(body, modelStr);
-      
+
       // Success (2xx) - return response
       if (result.ok) {
         log.info("COMBO", `Model ${modelStr} succeeded`);
+        await updateComboHealth(comboName, modelStr, true);
         return result;
       }
 
@@ -330,6 +346,11 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
       if (typeof errorText !== "string") {
         try { errorText = JSON.stringify(errorText); } catch { errorText = String(errorText); }
       }
+
+
+      // nếu trạng thái không phải 429, cập nhật sức khỏe combo (tức là coi nó đang lỗi, có thể do hệ thống hoặc key)
+
+      if (result.status !== 429) await updateComboHealth(comboName, modelStr, false, errorText);
 
       // Check if should fallback to next model
       const { shouldFallback, cooldownMs } = checkFallbackError(result.status, errorText);
@@ -355,6 +376,7 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
     } catch (error) {
       // Catch unexpected exceptions to ensure fallback continues
       lastError = error.message || String(error);
+      await updateComboHealth(comboName, modelStr, false, lastError);
       if (!lastStatus) lastStatus = 500;
       log.warn("COMBO", `Model ${modelStr} threw error, trying next`, { error: lastError });
     }

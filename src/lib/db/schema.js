@@ -97,6 +97,7 @@ export const TABLES = {
       name: "TEXT UNIQUE NOT NULL",
       kind: "TEXT",
       models: "TEXT NOT NULL",
+      errorThreshold: "INTEGER NOT NULL DEFAULT 4",
       createdAt: "TEXT NOT NULL",
       updatedAt: "TEXT NOT NULL",
     },

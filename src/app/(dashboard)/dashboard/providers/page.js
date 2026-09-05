@@ -100,6 +100,7 @@ export default function ProvidersPage() {
   const [providerNodes, setProviderNodes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAllApikey, setShowAllApikey] = useState(false);
+  const [hideUnconnected, setHideUnconnected] = useState(false);
   const [showAddCompatibleModal, setShowAddCompatibleModal] = useState(false);
   const [showAddAnthropicCompatibleModal, setShowAddAnthropicCompatibleModal] =
     useState(false);
@@ -295,17 +296,19 @@ export default function ProvidersPage() {
     return ["oauth", "apikey", "api_key"];
   };
 
+  const hasConnections = (key, info) => info.noAuth || getProviderStats(key, dualAuthTypes(info, key)).total > 0;
+  const visible = (entries) => hideUnconnected ? entries.filter(([key, info]) => hasConnections(key, info)) : entries;
   const oauthEntries = sortByPriority(
-    Object.entries(OAUTH_PROVIDERS).filter(([, info]) => !info.hidden && matchSearch(info.name)),
+    visible(Object.entries(OAUTH_PROVIDERS).filter(([, info]) => !info.hidden && matchSearch(info.name))),
     "oauth",
   );
-  const freeEntries = Object.entries(FREE_PROVIDERS)
-    .filter(([, info]) => !info.hidden && matchSearch(info.name))
+  const freeEntries = visible(Object.entries(FREE_PROVIDERS)
+    .filter(([, info]) => !info.hidden && matchSearch(info.name)))
     .sort(([, a], [, b]) => (b.noAuth ? 1 : 0) - (a.noAuth ? 1 : 0));
   // Free Tier cards may be oauth-only (e.g. kimchi) or dual-auth, so count via
   // dualAuthTypes per provider instead of a fixed "apikey" — otherwise oauth
   // connections are invisible here (mismatch with the detail page).
-  const freeTierEntries = Object.entries(FREE_TIER_PROVIDERS)
+  const freeTierEntries = visible(Object.entries(FREE_TIER_PROVIDERS)
     .filter(
       ([, info]) =>
         !info.hidden &&
@@ -322,9 +325,9 @@ export default function ProvidersPage() {
       const cb = getProviderStats(kb, dualAuthTypes(b, kb)).connected > 0 ? 0 : 1;
       if (ca !== cb) return ca - cb;
       return (a.name || "").localeCompare(b.name || "");
-    });
+    }));
   // API Key: connected providers first, then alphabetical by name
-  const apikeyEntries = Object.entries(APIKEY_PROVIDERS)
+  const apikeyEntries = visible(Object.entries(APIKEY_PROVIDERS)
     .filter(
       ([, info]) =>
         !info.hidden &&
@@ -336,7 +339,7 @@ export default function ProvidersPage() {
       const cb = getProviderStats(kb, "apikey").total > 0 ? 0 : 1;
       if (ca !== cb) return ca - cb;
       return (a.name || "").localeCompare(b.name || "");
-    });
+    }));
   const isApikeySearching = !!searchQuery.trim();
   const visibleApikeyEntries =
     isApikeySearching || showAllApikey
@@ -422,6 +425,11 @@ export default function ProvidersPage() {
             )}
           </div>
         )}
+      </div>
+
+      <div className="mb-4 flex items-center justify-end gap-3">
+        <span className="text-sm text-text-muted">Hide providers without connections</span>
+        <Toggle checked={hideUnconnected} onChange={() => setHideUnconnected((value) => !value)} />
       </div>
 
       {/* OAuth Providers */}

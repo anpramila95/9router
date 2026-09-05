@@ -1,13 +1,21 @@
 import { NextResponse } from "next/server";
 import { createProviderConnection, getProviderConnections } from "@/models";
 import { normalizeProviderId } from "@/lib/providerNormalization";
+import { verifyDashboardPassword } from "@/lib/auth/dashboardSession";
 
 export const dynamic = "force-dynamic";
+
+const PASSWORD_HEADER = "x-9r-password";
 
 // POST /api/providers/import - Bulk import provider connections (API Key / OAuth)
 export async function POST(request) {
   try {
     const body = await request.json();
+    const pass = body?.password || request.headers.get(PASSWORD_HEADER);
+    if (pass && !(await verifyDashboardPassword(pass))) {
+      return NextResponse.json({ error: "Invalid password" }, { status: 401 });
+    }
+
     const connections = Array.isArray(body)
       ? body
       : Array.isArray(body?.connections)

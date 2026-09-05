@@ -9,29 +9,36 @@ import ModelSelectModal from "./ModelSelectModal";
 const VALID_NAME_REGEX = /^[a-zA-Z0-9_.\-]+$/;
 
 // Inline editable model item
-function ModelItem({ index, model, isFirst, isLast, onEdit, onMoveUp, onMoveDown, onRemove }) {
+function ModelItem({ index, model, isFirst, isLast, onEdit, onToggle, onMoveUp, onMoveDown, onRemove }) {
+  const modelName = typeof model === "string" ? model : model.model;
+  const inactive = typeof model !== "string" && model.active === false;
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(model);
+  const [draft, setDraft] = useState(modelName);
   const commit = () => {
     const trimmed = draft.trim();
-    if (trimmed && trimmed !== model) onEdit(trimmed);
-    else setDraft(model);
+    if (trimmed && trimmed !== modelName) onEdit(trimmed);
+    else setDraft(modelName);
     setEditing(false);
   };
   const handleKeyDown = (e) => {
     if (e.key === "Enter") commit();
-    if (e.key === "Escape") { setDraft(model); setEditing(false); }
+    if (e.key === "Escape") { setDraft(modelName); setEditing(false); }
   };
   return (
-    <div className="group flex min-w-0 items-center gap-1.5 rounded-md bg-black/[0.02] px-2 py-1 transition-colors hover:bg-black/[0.04] dark:bg-white/[0.02] dark:hover:bg-white/[0.04]">
+    <div className={`group flex min-w-0 items-center gap-1.5 rounded-md bg-black/[0.02] ${inactive ? "opacity-60" : ""} px-2 py-1 transition-colors hover:bg-black/[0.04] dark:bg-white/[0.02] dark:hover:bg-white/[0.04]}`}>
       <span className="text-[10px] font-medium text-text-muted w-3 text-center shrink-0">{index + 1}</span>
       {editing ? (
         <input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={handleKeyDown}
           className="min-w-0 flex-1 rounded border border-primary/40 bg-white px-1.5 py-0.5 font-mono text-xs text-text-main outline-none dark:bg-black/20" />
       ) : (
         <div className="min-w-0 flex-1 cursor-text truncate rounded px-1.5 py-0.5 font-mono text-xs text-text-main hover:bg-black/5 dark:hover:bg-white/5"
-          onClick={() => setEditing(true)} title="Click to edit">{model}</div>
+          onClick={() => setEditing(true)} title={inactive ? model.lastError || "Inactive" : "Click to edit"}>{modelName}</div>
       )}
+      <span className="text-[10px] text-red-500" title={inactive ? model.lastError : ""}>{typeof model !== "string" && model.errorCount ? `${model.errorCount} errors` : ""}</span>
+      <button type="button" role="switch" aria-checked={!inactive} aria-label={`${inactive ? "Enable" : "Disable"} ${modelName}`} onClick={onToggle}
+        className={`relative h-4 w-8 shrink-0 rounded-full transition-colors ${inactive ? "bg-black/20 dark:bg-white/20" : "bg-primary"}`} title={inactive ? "Enable model" : "Disable model"}>
+        <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform ${inactive ? "left-0.5" : "left-4"}`} />
+      </button>
       <div className="flex shrink-0 items-center gap-0.5">
         <button onClick={onMoveUp} disabled={isFirst}
           className={`p-0.5 rounded ${isFirst ? "text-text-muted/20 cursor-not-allowed" : "text-text-muted hover:text-primary hover:bg-black/5 dark:hover:bg-white/5"}`} title="Move up">
@@ -57,6 +64,7 @@ export default function ComboFormModal({ isOpen, combo, onClose, onSave, activeP
     : "";
   const [name, setName] = useState(initialName);
   const [models, setModels] = useState(combo?.models || []);
+  const [errorThreshold, setErrorThreshold] = useState(combo?.errorThreshold || 4);
   const [showModelSelect, setShowModelSelect] = useState(false);
   const [saving, setSaving] = useState(false);
   const [nameError, setNameError] = useState("");
@@ -84,10 +92,10 @@ export default function ComboFormModal({ isOpen, combo, onClose, onSave, activeP
   };
 
   const handleAddModel = (model) => {
-    if (!models.includes(model.value)) setModels([...models, model.value]);
+    if (!models.some((item) => (item.model || item) === model.value)) setModels([...models, { model: model.value, active: true, errorCount: 0, lastError: null }]);
   };
   const handleDeselectModel = (model) => {
-    setModels(models.filter((m) => m !== model.value));
+    setModels(models.filter((m) => (m.model || m) !== model.value));
   };
   const handleRemoveModel = (i) => setModels(models.filter((_, idx) => idx !== i));
   const handleMoveUp = (i) => {
@@ -102,7 +110,7 @@ export default function ComboFormModal({ isOpen, combo, onClose, onSave, activeP
   const handleSave = async () => {
     if (!validateName(name)) return;
     setSaving(true);
-    await onSave({ name: forcePrefix + name.trim(), models });
+    await onSave({ name: forcePrefix + name.trim(), models, errorThreshold: Math.max(1, Number(errorThreshold) || 4) });
     setSaving(false);
   };
 
@@ -143,7 +151,8 @@ export default function ComboFormModal({ isOpen, combo, onClose, onSave, activeP
                 {models.map((model, index) => (
                   <ModelItem key={index} index={index} model={model}
                     isFirst={index === 0} isLast={index === models.length - 1}
-                    onEdit={(v) => { const a = [...models]; a[index] = v; setModels(a); }}
+                    onEdit={(v) => { const a = [...models]; a[index] = typeof model === "string" ? v : { ...model, model: v }; setModels(a); }}
+                                        onToggle={() => { const a = [...models]; a[index] = { ...(typeof model === "string" ? { model } : model), active: inactive }; setModels(a); }}
                     onMoveUp={() => handleMoveUp(index)}
                     onMoveDown={() => handleMoveDown(index)}
                     onRemove={() => handleRemoveModel(index)} />
@@ -157,6 +166,7 @@ export default function ComboFormModal({ isOpen, combo, onClose, onSave, activeP
             </button>
           </div>
 
+          <label className="text-xs text-text-muted">Auto-disable after errors<input type="number" min="1" value={errorThreshold} onChange={(e) => setErrorThreshold(e.target.value)} className="ml-2 w-16 rounded border px-1 py-1 text-text-main" /></label>
           <div className="flex flex-col gap-2 pt-1 sm:flex-row">
             <Button onClick={onClose} variant="ghost" fullWidth size="sm">Cancel</Button>
             <Button onClick={handleSave} fullWidth size="sm" disabled={!name.trim() || !!nameError || saving}>

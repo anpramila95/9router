@@ -16,7 +16,7 @@ const STRATEGIES = [
 export default function NoAuthProxyCard({ providerId }) {
   const [proxyPools, setProxyPools] = useState([]);
   const [proxyPoolId, setProxyPoolId] = useState(NONE_PROXY_POOL_VALUE);
-  const [rotateStrategy, setRotateStrategy] = useState("none");
+  const [rotateStrategy, setRotateStrategy] = useState("random");
   const [saving, setSaving] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
 
@@ -30,7 +30,7 @@ export default function NoAuthProxyCard({ providerId }) {
       setProxyPools(poolData.proxyPools || []);
       const override = (settingsData.providerStrategies || {})[providerId] || {};
       setProxyPoolId(override.proxyPoolId || NONE_PROXY_POOL_VALUE);
-      setRotateStrategy(override.rotateStrategy || "none");
+      setRotateStrategy(override.rotateStrategy || "random");
     }).catch(() => {});
     return () => { cancelled = true; };
   }, [providerId]);
@@ -73,7 +73,8 @@ export default function NoAuthProxyCard({ providerId }) {
     save(proxyPoolId, newStrategy);
   };
 
-  const canRotate = proxyPools.length >= 2;
+  const proxyCount = proxyPools.reduce((count, pool) => count + (pool.proxyUrls?.length || (pool.proxyUrl ? 1 : 0)), 0);
+  const canRotate = proxyCount >= 2;
   const isRotation = rotateStrategy !== "none";
 
   return (
@@ -93,12 +94,12 @@ export default function NoAuthProxyCard({ providerId }) {
         label="Proxy Pool"
         value={proxyPoolId}
         onChange={(e) => handlePoolChange(e.target.value)}
-        disabled={saving || isRotation}
+        disabled={saving}
         options={[
           { value: NONE_PROXY_POOL_VALUE, label: "None (direct)" },
           ...proxyPools.map((pool) => ({ value: pool.id, label: pool.name })),
         ]}
-        hint={isRotation ? "Pool selector is ignored when rotation is active — all active pools are used." : undefined}
+        hint={isRotation ? "Selected pool proxy URLs rotate using the strategy below." : undefined}
       />
 
       <div className="flex flex-col gap-2 mt-4">
@@ -117,12 +118,12 @@ export default function NoAuthProxyCard({ providerId }) {
         </select>
         <p className="text-xs text-text-muted">
           {!canRotate
-            ? `Need at least 2 active proxy pools for rotation.`
+            ? `Need at least 2 proxy URLs for rotation.`
             : isRotation
               ? rotateStrategy === "round-robin"
-                ? `Rotating through all ${proxyPools.length} active pools in order. State is in-memory (resets on restart).`
-                : `Picking a random pool from ${proxyPools.length} active pools each request.`
-              : `Uses the selected pool above. Set to Round-robin or Random to rotate across all active pools.`}
+                ? `Rotating through ${proxyCount} proxy URLs in order. State is in-memory (resets on restart).`
+                : `Picking a random proxy URL from ${proxyCount} each request.`
+              : `Uses selected pool. Random is default; Round-robin rotates proxy URLs in order.`}
         </p>
       </div>
     </Card>

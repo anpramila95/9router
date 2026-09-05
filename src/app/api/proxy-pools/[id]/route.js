@@ -17,12 +17,14 @@ function normalizeProxyPoolUpdate(body = {}) {
     updates.name = name;
   }
 
-  if (Object.prototype.hasOwnProperty.call(body, "proxyUrl")) {
-    const proxyUrl = typeof body?.proxyUrl === "string" ? body.proxyUrl.trim() : "";
-    if (!proxyUrl) {
-      return { error: "Proxy URL is required" };
-    }
+  if (Object.prototype.hasOwnProperty.call(body, "proxyUrls") || Object.prototype.hasOwnProperty.call(body, "proxyUrl")) {
+    const proxyUrls = Array.isArray(body?.proxyUrls)
+      ? body.proxyUrls.map((url) => String(url).trim()).filter(Boolean)
+      : (typeof body?.proxyUrls === "string" ? body.proxyUrls.split("\n").map((url) => url.trim()).filter(Boolean) : []);
+    const proxyUrl = proxyUrls[0] || (typeof body?.proxyUrl === "string" ? body.proxyUrl.trim() : "");
+    if (!proxyUrl) return { error: "Proxy URL is required" };
     updates.proxyUrl = proxyUrl;
+    updates.proxyUrls = proxyUrls.length ? proxyUrls : [proxyUrl];
   }
 
   if (Object.prototype.hasOwnProperty.call(body, "noProxy")) {

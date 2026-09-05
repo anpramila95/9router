@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import PropTypes from "prop-types";
 import { Modal, Button } from "@/shared/components";
 
@@ -13,21 +13,43 @@ export default function ConnectionImportExportModal({
   onImportSuccess,
 }) {
   const [activeTab, setActiveTab] = useState("export"); // "export" | "import"
+  const [exportData, setExportData] = useState(null);
+  const [loadingExport, setLoadingExport] = useState(false);
   const [importText, setImportText] = useState("");
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
 
-  // Generate export JSON for this provider's connections
-  const exportPayload = {
+  // Fetch full connections with tokens/credentials from server
+  useEffect(() => {
+    if (!isOpen) {
+      setExportData(null);
+      return;
+    }
+    let cancelled = false;
+    const fetchFullExport = async () => {
+      setLoadingExport(true);
+      try {
+        const res = await fetch(`/api/providers/export?provider=${encodeURIComponent(providerId)}`);
+        if (!res.ok) throw new Error("Failed to load export data");
+        const data = await res.json();
+        if (!cancelled) setExportData(data);
+      } catch (err) {
+        if (!cancelled) setError(err.message || "Failed to load full connection data");
+      } finally {
+        if (!cancelled) setLoadingExport(false);
+      }
+    };
+    fetchFullExport();
+    return () => { cancelled = true; };
+  }, [isOpen, providerId]);
+
+  const exportPayload = exportData || {
     version: 1,
     provider: providerId,
     exportedAt: new Date().toISOString(),
-    connections: connections.map((c) => {
-      const { id, lastTested, lastError, lastErrorAt, consecutiveUseCount, testStatus, rateLimitedUntil, ...clean } = c;
-      return clean;
-    }),
+    connections: [],
   };
 
   const exportJsonString = JSON.stringify(exportPayload, null, 2);
@@ -153,16 +175,16 @@ export default function ConnectionImportExportModal({
             <div className="relative">
               <textarea
                 readOnly
-                value={exportJsonString}
+                value={loadingExport ? "Loading connection credentials..." : exportJsonString}
                 rows={8}
                 className="w-full font-mono text-xs p-3 bg-sidebar rounded-lg border border-border focus:outline-none resize-none select-all"
               />
             </div>
             <div className="flex gap-2">
-              <Button onClick={handleCopyExport} variant="secondary" fullWidth icon={copied ? "check" : "content_copy"}>
+              <Button onClick={handleCopyExport} variant="secondary" fullWidth icon={copied ? "check" : "content_copy"} disabled={loadingExport}>
                 {copied ? "Copied!" : "Copy JSON"}
               </Button>
-              <Button onClick={handleDownloadExport} variant="primary" fullWidth icon="download">
+              <Button onClick={handleDownloadExport} variant="primary" fullWidth icon="download" disabled={loadingExport}>
                 Download JSON
               </Button>
             </div>

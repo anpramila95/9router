@@ -85,7 +85,10 @@ export async function resolveConnectionProxyConfig(
     if (proxyPoolId) {
       const proxyPool = await getProxyPoolById(proxyPoolId);
 
-      const proxyUrl = normalizeString(proxyPool?.proxyUrl);
+      const proxyUrls = Array.isArray(proxyPool?.proxyUrls) && proxyPool.proxyUrls.length
+        ? proxyPool.proxyUrls.map(normalizeString).filter(Boolean)
+        : [normalizeString(proxyPool?.proxyUrl)].filter(Boolean);
+      const proxyUrl = proxyUrls[0] || "";
       const noProxy = normalizeString(proxyPool?.noProxy);
 
       const isValidPool =
@@ -107,6 +110,7 @@ export async function resolveConnectionProxyConfig(
 
             connectionProxyEnabled: false,
             connectionProxyUrl: "",
+            connectionProxyUrls: proxyUrls,
             connectionNoProxy: noProxy,
 
             strictProxy: proxyPool.strictProxy === true,
@@ -126,6 +130,7 @@ export async function resolveConnectionProxyConfig(
 
           connectionProxyEnabled: true,
           connectionProxyUrl: proxyUrl,
+          connectionProxyUrls: proxyUrls,
           connectionNoProxy: noProxy,
 
           strictProxy: proxyPool.strictProxy === true,

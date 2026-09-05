@@ -63,6 +63,7 @@ export async function createProxyPool(data) {
     id: data.id || uuidv4(),
     name: data.name,
     proxyUrl: data.proxyUrl,
+    proxyUrls: Array.isArray(data.proxyUrls) && data.proxyUrls.length ? data.proxyUrls : [data.proxyUrl],
     noProxy: data.noProxy || "",
     type: data.type || "http",
     isActive: data.isActive !== undefined ? data.isActive : true,

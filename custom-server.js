@@ -14,6 +14,19 @@ const PEER_TOKEN = crypto.randomBytes(24).toString("hex");
 process.env.NINEROUTER_PEER_TOKEN = PEER_TOKEN;
 
 let backgroundRefreshStarted = false;
+let comboHealthStarted = false;
+
+function startComboHealthFromCustomServer() {
+  if (comboHealthStarted) return;
+  comboHealthStarted = true;
+  const modPath = path.join(__dirname, "src", "sse", "services", "comboHealthScheduler.js");
+  import(pathToFileURL(modPath).href).then((m) => {
+    m.startComboHealthScheduler();
+    const stop = () => m.stopComboHealthScheduler();
+    process.once("SIGINT", stop);
+    process.once("SIGTERM", stop);
+  }).catch((e) => console.warn("[ComboHealth] startup failed:", e.message));
+}
 
 function startBackgroundTokenRefreshFromCustomServer() {
   if (backgroundRefreshStarted) return;
@@ -75,6 +88,7 @@ http.createServer = (...args) => {
   const server = origCreate(...rest, wrapped);
   server.once("listening", () => {
     startBackgroundTokenRefreshFromCustomServer();
+    startComboHealthFromCustomServer();
   });
   const origEmit = server.emit;
   // JBR 25 sends h2c upgrades that the HTTP/1.1 server would otherwise close.
