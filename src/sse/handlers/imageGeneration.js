@@ -26,9 +26,24 @@ const NO_AUTH_PROVIDERS = new Set(["sdwebui", "comfyui"]);
 export async function handleImageGeneration(request) {
   let body;
   try {
-    body = await request.json();
+    const contentType = request.headers.get("content-type") || "";
+    if (contentType.includes("multipart/form-data")) {
+      const form = await request.formData();
+      body = Object.fromEntries(form.entries());
+      const files = form.getAll("images[]").filter((value) => value instanceof File);
+      if (files.length) {
+        body.images = await Promise.all(files.map(async (file) => ({
+          image_url: `data:${file.type || "application/octet-stream"};base64,${Buffer.from(await file.arrayBuffer()).toString("base64")}`,
+        })));
+      }
+      for (const key of ["n"]) {
+        if (body[key] !== undefined) body[key] = Number(body[key]);
+      }
+    } else {
+      body = await request.json();
+    }
   } catch {
-    return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid JSON body");
+    return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid request body");
   }
 
   const url = new URL(request.url);
