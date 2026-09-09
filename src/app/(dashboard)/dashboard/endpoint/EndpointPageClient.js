@@ -805,6 +805,13 @@ export default function APIPageClient({ machineId }) {
   }
 
   const currentEndpoint = baseUrl;
+  const mcpUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/mcp`;
+  const copyMcpConfig = (key) => copy(JSON.stringify({
+    binhdanhocai: {
+      url: mcpUrl,
+      headers: { Authorization: `Bearer ${key}` },
+    },
+  }, null, 2), `mcp-${key}`);
 
   return (
     <div className="flex flex-col gap-8">
@@ -1138,9 +1145,19 @@ export default function APIPageClient({ machineId }) {
                     <button
                       onClick={() => copy(key.key, key.id)}
                       className="p-1 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-all"
+                      title="Copy API key"
                     >
                       <span className="material-symbols-outlined text-[14px]">
                         {copied === key.id ? "check" : "content_copy"}
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => copyMcpConfig(key.key)}
+                      className="p-1 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-all"
+                      title="Copy MCP config"
+                    >
+                      <span className="material-symbols-outlined text-[14px]">
+                        {copied === `mcp-${key.key}` ? "check" : "extension"}
                       </span>
                     </button>
                   </div>
