@@ -2,11 +2,17 @@ import { NextResponse } from "next/server";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import {
+  CALENDAR_TOOLS,
+  isCalendarTool,
+  dispatchCalendarTool,
+} from "./calendar/tools.js";
+import { resolveApiKeyId } from "./calendar/store.js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const tools = [
+const mediaTools = [
   {
     name: "image.generate",
     description:
@@ -38,27 +44,39 @@ const tools = [
     inputSchema: {
       type: "object",
       properties: {
-        access_token: { type: "string", description: "Facebook user access token" },
+        access_token: {
+          type: "string",
+          description: "Facebook user access token",
+        },
       },
       required: ["access_token"],
     },
   },
   {
     name: "facebook.post",
-    description: "Publish text, multiple images, or a video to a Facebook Page or personal profile. Send media as public URL or Base64 file payload.",
+    description:
+      "Publish text, multiple images, or a video to a Facebook Page or personal profile. Send media as public URL or Base64 file payload.",
     inputSchema: {
       type: "object",
       properties: {
-        access_token: { type: "string", description: "Facebook user token or Page token" },
-        page_id: { type: "string", description: "Facebook Page ID. Omit for personal profile post." },
+        access_token: {
+          type: "string",
+          description: "Facebook user token or Page token",
+        },
+        page_id: {
+          type: "string",
+          description: "Facebook Page ID. Omit for personal profile post.",
+        },
         message: { type: "string" },
         images: {
           type: "array",
-          description: "Multiple image URLs or objects: {data: Base64, mime_type: string, filename: string}",
+          description:
+            "Multiple image URLs or objects: {data: Base64, mime_type: string, filename: string}",
           items: { type: ["string", "object"] },
         },
         video: {
-          description: "Video URL or object: {data: Base64, mime_type: string, filename: string}",
+          description:
+            "Video URL or object: {data: Base64, mime_type: string, filename: string}",
           type: ["string", "object"],
         },
       },
@@ -123,21 +141,13 @@ const tools = [
   },
 ];
 
+const tools = [...mediaTools, ...CALENDAR_TOOLS];
+
 function auth(request) {
   const authorization = request.headers.get("authorization");
   if (authorization?.startsWith("Bearer "))
     return authorization.slice(7).trim();
   return request.headers.get("x-api-key")?.trim() || "";
-}
-
-async function getLocalCodexAccessToken() {
-  try {
-    const raw = await readFile(join(homedir(), ".codex", "auth.json"), "utf8");
-    const authFile = JSON.parse(raw);
-    return authFile?.tokens?.access_token || authFile?.tokens?.acess_token || null;
-  } catch {
-    return null;
-  }
 }
 
 function jsonRpc(id, result) {
@@ -180,27 +190,42 @@ async function callCodexImage(request, body) {
       };
 }
 
-const FACEBOOK_GRAPH_VERSION = process.env.FACEBOOK_GRAPH_API_VERSION || "v22.0";
+const FACEBOOK_GRAPH_VERSION =
+  process.env.FACEBOOK_GRAPH_API_VERSION || "v22.0";
 
 async function facebookRequest(path, accessToken, init = {}) {
-  const url = new URL(`https://graph.facebook.com/${FACEBOOK_GRAPH_VERSION}/${path}`);
-  if (init.query) for (const [key, value] of Object.entries(init.query)) url.searchParams.set(key, value);
+  const url = new URL(
+    `https://graph.facebook.com/${FACEBOOK_GRAPH_VERSION}/${path}`,
+  );
+  if (init.query)
+    for (const [key, value] of Object.entries(init.query))
+      url.searchParams.set(key, value);
   const response = await fetch(url, {
     ...init,
-    headers: { ...(init.headers || {}), authorization: `Bearer ${accessToken}` },
+    headers: {
+      ...(init.headers || {}),
+      authorization: `Bearer ${accessToken}`,
+    },
   });
   const text = await response.text();
   let data;
-  try { data = JSON.parse(text); } catch { data = { raw: text }; }
-  if (!response.ok) throw new Error(data?.error?.message || `Facebook HTTP ${response.status}`);
+  try {
+    data = JSON.parse(text);
+  } catch {
+    data = { raw: text };
+  }
+  if (!response.ok)
+    throw new Error(data?.error?.message || `Facebook HTTP ${response.status}`);
   return data;
 }
 
 function facebookFile(value, defaultName, defaultType) {
-  if (typeof value === "string" && /^https?:\/\//i.test(value)) return { url: value };
+  if (typeof value === "string" && /^https?:\/\//i.test(value))
+    return { url: value };
   if (typeof value === "object" && value?.url) return { url: value.url };
   const data = typeof value === "string" ? value : value?.data;
-  if (!data) throw new Error(`${defaultName} must be URL or Base64 file payload`);
+  if (!data)
+    throw new Error(`${defaultName} must be URL or Base64 file payload`);
   const raw = data.replace(/^data:[^;]+;base64,/, "");
   return {
     blob: Buffer.from(raw, "base64"),
@@ -210,38 +235,83 @@ function facebookFile(value, defaultName, defaultType) {
 }
 
 async function facebookPost(args) {
-  const { access_token: token, page_id: pageId, message = "", images = [], video } = args;
-  if (!message && !images.length && !video) throw new Error("message, images, or video is required");
+  const {
+    access_token: token,
+    page_id: pageId,
+    message = "",
+    images = [],
+    video,
+  } = args;
+  if (!message && !images.length && !video)
+    throw new Error("message, images, or video is required");
   const target = pageId || "me";
   if (video) {
     const file = facebookFile(video, "video.mp4", "video/mp4");
-    if (file.url) return facebookRequest(`${target}/videos`, token, { method: "POST", query: { file_url: file.url, description: message } });
+    if (file.url)
+      return facebookRequest(`${target}/videos`, token, {
+        method: "POST",
+        query: { file_url: file.url, description: message },
+      });
     const form = new FormData();
-    form.set("source", new Blob([file.blob], { type: file.mimeType }), file.filename);
+    form.set(
+      "source",
+      new Blob([file.blob], { type: file.mimeType }),
+      file.filename,
+    );
     form.set("description", message);
-    return facebookRequest(`${target}/videos`, token, { method: "POST", body: form });
+    return facebookRequest(`${target}/videos`, token, {
+      method: "POST",
+      body: form,
+    });
   }
   if (images.length > 1 || images.length === 1) {
     const attached = [];
     for (const image of images) {
       const file = facebookFile(image, "image.jpg", "image/jpeg");
-      if (file.url) attached.push({ media_fbid: (await facebookRequest(`${target}/photos`, token, { method: "POST", query: { url: file.url, published: "false" } })).id });
+      if (file.url)
+        attached.push({
+          media_fbid: (
+            await facebookRequest(`${target}/photos`, token, {
+              method: "POST",
+              query: { url: file.url, published: "false" },
+            })
+          ).id,
+        });
       else {
         const form = new FormData();
-        form.set("source", new Blob([file.blob], { type: file.mimeType }), file.filename);
+        form.set(
+          "source",
+          new Blob([file.blob], { type: file.mimeType }),
+          file.filename,
+        );
         form.set("published", "false");
-        attached.push({ media_fbid: (await facebookRequest(`${target}/photos`, token, { method: "POST", body: form })).id });
+        attached.push({
+          media_fbid: (
+            await facebookRequest(`${target}/photos`, token, {
+              method: "POST",
+              body: form,
+            })
+          ).id,
+        });
       }
     }
-    return facebookRequest(`${target}/feed`, token, { method: "POST", query: { message, attached_media: JSON.stringify(attached) } });
+    return facebookRequest(`${target}/feed`, token, {
+      method: "POST",
+      query: { message, attached_media: JSON.stringify(attached) },
+    });
   }
-  return facebookRequest(`${target}/feed`, token, { method: "POST", query: { message } });
+  return facebookRequest(`${target}/feed`, token, {
+    method: "POST",
+    query: { message },
+  });
 }
 
 async function callApi(request, path, method, body) {
   const headers = {
     authorization: `Bearer ${auth(request)}`,
     "content-type": "application/json",
+    "User-Agent":
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
   };
   const url = new URL(`/api/v1${path}`, request.url);
   const response = await fetch(url, {
@@ -285,8 +355,17 @@ async function handle(request) {
   const args = params.arguments || {};
   try {
     let result;
-    if (name === "facebook.pages") {
-      result = await facebookRequest("me/accounts", args.access_token, { query: { fields: "id,name,access_token,category,link" } });
+    if (isCalendarTool(name)) {
+      const apiKeyString = auth(request);
+      const resolved = await resolveApiKeyId(apiKeyString);
+      const apiKeyId =
+        resolved ||
+        (apiKeyString ? `raw_${apiKeyString.slice(0, 32)}` : "default");
+      result = await dispatchCalendarTool({ apiKeyId, name, args, request });
+    } else if (name === "facebook.pages") {
+      result = await facebookRequest("me/accounts", args.access_token, {
+        query: { fields: "id,name,access_token,category,link" },
+      });
     } else if (name === "facebook.post") {
       result = await facebookPost(args);
     } else if (name === "image.generate") {
@@ -296,17 +375,37 @@ async function handle(request) {
         response_format: "url",
         ...args,
       };
-      const accessToken = body.access_token || await getLocalCodexAccessToken();
+      const accessToken =
+        body.access_token || (await getLocalCodexAccessToken());
       if (accessToken) {
-        try {
-          result = await callCodexImage(request, { ...body, access_token: accessToken });
-        } catch {
+        let codexSuccess = false;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            result = await callCodexImage(request, {
+              ...body,
+              access_token: accessToken,
+            });
+            codexSuccess = true;
+            break;
+          } catch {}
+        }
+        if (!codexSuccess) {
           const { access_token, ...fallbackBody } = body;
-          result = await callApi(request, "/images/generations", "POST", fallbackBody);
+          result = await callApi(
+            request,
+            "/images/generations",
+            "POST",
+            fallbackBody,
+          );
         }
       } else {
         const { access_token, ...fallbackBody } = body;
-        result = await callApi(request, "/images/generations", "POST", fallbackBody);
+        result = await callApi(
+          request,
+          "/images/generations",
+          "POST",
+          fallbackBody,
+        );
       }
     } else if (name === "image.generate.codex") {
       if (!args.access_token)
@@ -318,6 +417,16 @@ async function handle(request) {
         ...args,
       });
     } else if (name === "video.generate") {
+      //tạm thời dừng
+      return jsonRpc(id, {
+        content: [
+          {
+            type: "text",
+            text: `Tính năng tạo video tạm thời chưa hoạt động!`,
+          },
+        ],
+        isError: true,
+      });
       const mode = args.mode || "t2v";
       if (!["t2v", "r2v", "i2v"].includes(mode))
         return error(id, -32602, `Invalid video mode: ${mode}`);

@@ -27,8 +27,10 @@ import { getProjectIdForConnection } from "open-sse/services/projectId.js";
 function sanitizeHermesPrompt(body) {
   if (!body) return body;
   const replaces = [
-    ["You are Hermes Agent, built by Nous Research", "You are snart AI Agent"],
-    ["Hermes Agent is an open-source AI agent framework by Nous Research", "AI Agent is an open-source AI agent framework"]
+    ["You are Hermes Agent, built by Nous Research", "You are smart AI Agent"],
+    ["Hermes Agent is an open-source AI agent framework by Nous Research", "AI Agent is an open-source AI agent framework"],
+    ["Hermes", "AI Agent"],
+    ["https://hermes-agent.nousresearch.com/docs",""]
   ];
   const replaceStr = (str) => {
     if (typeof str !== "string") return str;

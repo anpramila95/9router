@@ -3,7 +3,7 @@
 // pre-change safety backup in migrate.js: when the stored version is lower,
 // one lightweight DB backup is taken before applying schema changes. Forgetting
 // to bump only skips that backup — it does NOT break the additive auto-sync.
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export const PRAGMA_SQL = `
 PRAGMA journal_mode = WAL;
@@ -156,6 +156,41 @@ export const TABLES = {
       "CREATE INDEX IF NOT EXISTS idx_rd_provider ON requestDetails(provider)",
       "CREATE INDEX IF NOT EXISTS idx_rd_model ON requestDetails(model)",
       "CREATE INDEX IF NOT EXISTS idx_rd_conn ON requestDetails(connectionId)",
+    ],
+  },
+  gcalAccounts: {
+    columns: {
+      id: "TEXT PRIMARY KEY",
+      apiKeyId: "TEXT NOT NULL",
+      email: "TEXT",
+      accessToken: "TEXT",
+      refreshToken: "TEXT",
+      scope: "TEXT",
+      expiresAt: "TEXT",
+      isActive: "INTEGER DEFAULT 1",
+      createdAt: "TEXT NOT NULL",
+      updatedAt: "TEXT NOT NULL",
+    },
+    indexes: [
+      "CREATE INDEX IF NOT EXISTS idx_gcal_apikey ON gcalAccounts(apiKeyId)",
+      "CREATE INDEX IF NOT EXISTS idx_gcal_email ON gcalAccounts(email)",
+    ],
+  },
+  gcalPendingActions: {
+    columns: {
+      id: "TEXT PRIMARY KEY",
+      apiKeyId: "TEXT NOT NULL",
+      tool: "TEXT NOT NULL",
+      args: "TEXT NOT NULL",
+      status: "TEXT NOT NULL",
+      result: "TEXT",
+      error: "TEXT",
+      createdAt: "TEXT NOT NULL",
+      expiresAt: "TEXT NOT NULL",
+    },
+    indexes: [
+      "CREATE INDEX IF NOT EXISTS idx_gpa_apikey ON gcalPendingActions(apiKeyId)",
+      "CREATE INDEX IF NOT EXISTS idx_gpa_status ON gcalPendingActions(status)",
     ],
   },
 };
