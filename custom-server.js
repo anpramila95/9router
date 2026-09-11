@@ -59,10 +59,20 @@ process.env.NINEROUTER_PEER_TOKEN = PEER_TOKEN;
 let backgroundRefreshStarted = false;
 let comboHealthStarted = false;
 
+function resolveSrcPath(relPath) {
+  const candidates = [
+    path.join(__dirname, "src", relPath),
+    path.join(process.cwd(), "src", relPath),
+    path.join(__dirname, "..", "..", "src", relPath),
+  ];
+  return candidates.find((p) => fs.existsSync(p)) || null;
+}
+
 function startComboHealthFromCustomServer() {
   if (comboHealthStarted) return;
   comboHealthStarted = true;
-  const modPath = path.join(__dirname, "src", "sse", "services", "comboHealthScheduler.js");
+  const modPath = resolveSrcPath(path.join("sse", "services", "comboHealthScheduler.js"));
+  if (!modPath) return;
   import(pathToFileURL(modPath).href).then((m) => {
     m.startComboHealthScheduler();
     const stop = () => m.stopComboHealthScheduler();
@@ -74,9 +84,8 @@ function startComboHealthFromCustomServer() {
 function startBackgroundTokenRefreshFromCustomServer() {
   if (backgroundRefreshStarted) return;
   backgroundRefreshStarted = true;
-  // Prefer source path (repo / standalone that still has src). Fail-open if missing
-  // — initializeApp also starts the same scheduler when the Next app boots.
-  const modPath = path.join(__dirname, "src", "sse", "services", "backgroundTokenRefresh.js");
+  const modPath = resolveSrcPath(path.join("sse", "services", "backgroundTokenRefresh.js"));
+  if (!modPath) return;
   import(pathToFileURL(modPath).href)
     .then((m) => {
       try {
