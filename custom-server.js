@@ -130,6 +130,10 @@ http.createServer = (...args) => {
   };
   const server = origCreate(...rest, wrapped);
   server.once("listening", () => {
+    const addr = server.address();
+    const port = typeof addr === "object" && addr ? addr.port : (process.env.PORT || "20128");
+    const host = typeof addr === "object" && addr ? addr.address : (process.env.HOSTNAME || "127.0.0.1");
+    console.log(`[9Router] Server listening on http://${host}:${port}`);
     startBackgroundTokenRefreshFromCustomServer();
     startComboHealthFromCustomServer();
   });
@@ -182,15 +186,13 @@ http.createServer = (...args) => {
   return server;
 };
 
-if (require.main === module) {
-  const standalone = path.join(__dirname, "server.js");
-  if (fs.existsSync(standalone)) {
-    require(standalone);
-  } else {
-    // Repo checkout has no standalone build next to us. `next start` builds its HTTP
-    // server in-process, so the wrapper above still sanitizes every request.
-    const nextBin = require.resolve("next/dist/bin/next");
-    process.argv = [process.argv[0], nextBin, "start", ...process.argv.slice(2)];
-    require(nextBin);
-  }
+const standalone = path.join(__dirname, "server.js");
+if (fs.existsSync(standalone)) {
+  require(standalone);
+} else {
+  // Repo checkout has no standalone build next to us. `next start` builds its HTTP
+  // server in-process, so the wrapper above still sanitizes every request.
+  const nextBin = require.resolve("next/dist/bin/next");
+  process.argv = [process.argv[0], nextBin, "start", ...process.argv.slice(2)];
+  require(nextBin);
 }
