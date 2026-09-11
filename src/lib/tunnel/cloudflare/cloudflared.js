@@ -291,16 +291,22 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate) {
 
   const requestedProtocol = String(process.env.TUNNEL_TRANSPORT_PROTOCOL || process.env.CLOUDFLARED_PROTOCOL || DEFAULT_QUICK_TUNNEL_PROTOCOL).trim().toLowerCase();
   const tunnelProtocol = QUICK_TUNNEL_PROTOCOLS.has(requestedProtocol) ? requestedProtocol : DEFAULT_QUICK_TUNNEL_PROTOCOL;
-  const child = spawn(/*turbopackIgnore: true*/ binaryPath, ["tunnel", "--url", `http://127.0.0.1:${localPort}`, "--config", configPath, "--no-autoupdate", "--retries", "99"], {
-    detached: false,
-    windowsHide: true,
-    cwd: os.tmpdir(),
-    env: {
-      ...process.env,
-      TUNNEL_TRANSPORT_PROTOCOL: tunnelProtocol,
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  let child;
+  try {
+    child = spawn(/*turbopackIgnore: true*/ binaryPath, ["tunnel", "--url", `http://127.0.0.1:${localPort}`, "--config", configPath, "--no-autoupdate", "--retries", "99"], {
+      detached: false,
+      windowsHide: true,
+      cwd: os.tmpdir(),
+      env: {
+        ...process.env,
+        TUNNEL_TRANSPORT_PROTOCOL: tunnelProtocol,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (spawnError) {
+    cleanup();
+    throw spawnError;
+  }
 
   cloudflaredProcess = child;
   savePid(child.pid);

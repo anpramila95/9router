@@ -100,6 +100,11 @@ export async function enableTunnel(localPort = 20128) {
     console.log("[Tunnel] enable success");
     return { success: true, tunnelUrl, shortId, publicUrl };
   } catch (e) {
+    // If enable fails, auto turn off tunnel in settings to stop stuck "Tunnel checking..." state
+    try {
+      await updateSettings({ tunnelEnabled: false, tunnelUrl: "" });
+      if (global.__tunnelStatusCache) global.__tunnelStatusCache.value = null;
+    } catch {}
     // Suppress noise when spawn was deliberately killed (restart/disable superseded it)
     if (!/cloudflared killed|tunnel cancelled/.test(e.message)) {
       console.error(`[Tunnel] enable error: ${e.message}`);

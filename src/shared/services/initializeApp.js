@@ -191,6 +191,9 @@ async function safeRestartTunnel(reason) {
   } catch (err) {
     if (!/cloudflared killed|tunnel cancelled/.test(err.message)) {
       console.log("[Tunnel] restart failed:", err.message);
+      try {
+        await updateSettings({ tunnelEnabled: false, tunnelUrl: "" });
+      } catch {}
     }
   }
 }
