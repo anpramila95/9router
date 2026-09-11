@@ -4,6 +4,49 @@ const fs = require("fs");
 const crypto = require("crypto");
 const { pathToFileURL } = require("url");
 
+// Auto-load .env from working directory or project root
+function loadEnv() {
+  const candidates = [
+    path.join(process.cwd(), ".env"),
+    path.join(__dirname, ".env"),
+    path.join(__dirname, "..", "..", ".env"),
+  ];
+  for (const envPath of candidates) {
+    if (fs.existsSync(envPath)) {
+      try {
+        const content = fs.readFileSync(envPath, "utf8");
+        for (const line of content.split("\n")) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith("#")) continue;
+          const eqIdx = trimmed.indexOf("=");
+          if (eqIdx > 0) {
+            const key = trimmed.slice(0, eqIdx).trim();
+            let val = trimmed.slice(eqIdx + 1).trim();
+            if (
+              (val.startsWith('"') && val.endsWith('"')) ||
+              (val.startsWith("'") && val.endsWith("'"))
+            ) {
+              val = val.slice(1, -1);
+            }
+            if (process.env[key] === undefined) {
+              process.env[key] = val;
+            }
+          }
+        }
+      } catch {}
+    }
+  }
+}
+loadEnv();
+
+const portArgIdx = process.argv.findIndex((a) => a === "--port" || a === "-p");
+if (portArgIdx !== -1 && process.argv[portArgIdx + 1]) {
+  process.env.PORT = process.argv[portArgIdx + 1];
+}
+
+if (!process.env.PORT) process.env.PORT = "20128";
+if (!process.env.HOSTNAME) process.env.HOSTNAME = "127.0.0.1";
+
 const origCreate = http.createServer.bind(http);
 
 // Per-process secret proving x-9r-real-ip was stamped below rather than sent by the client.
