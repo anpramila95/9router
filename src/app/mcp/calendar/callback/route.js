@@ -17,7 +17,7 @@ function htmlResponse(title, message, isSuccess = true, details = null) {
   const color = isSuccess ? "#10b981" : "#ef4444";
   const icon = isSuccess ? "✓" : "✕";
   const detailsHtml = details
-    ? `<pre style="background:#f3f4f6;padding:12px;border-radius:6px;font-size:12px;overflow-x:auto;text-align:left;max-height:200px;">${escapeHtml(
+    ? `<pre style="background:#0f172a;color:#e2e8f0;border:1px solid #334155;padding:12px;border-radius:6px;font-size:12px;overflow-x:auto;text-align:left;max-height:200px;">${escapeHtml(
         JSON.stringify(details, null, 2)
       )}</pre>`
     : "";

@@ -26,7 +26,7 @@ export const CALENDAR_TOOLS = [
   {
     name: "calendar.accounts.add",
     description:
-      "Tạo liên kết đăng nhập OAuth mới để kết nối thêm một tài khoản Google Calendar vào API key này (có thể thêm nhiều tài khoản).",
+      "Tạo link đăng nhập OAuth kết nối tài khoản Google Calendar. Khi gọi tool này, hãy trả link auth_url về ngay cho người dùng mở trên trình duyệt.",
     inputSchema: {
       type: "object",
       properties: {},
@@ -390,13 +390,17 @@ export async function dispatchCalendarTool({ apiKeyId, name, args, request }) {
   }
 
   if (name === "calendar.accounts.add" || name === "calendar.auth.getUrl") {
-    const redirectUri = getCallbackUri(request);
-    const authUrl = buildAuthUrl({ apiKeyId, redirectUri });
+    const host = request.headers.get("host") || "localhost:20127";
+    const proto =
+      request.headers.get("x-forwarded-proto") ||
+      (host.startsWith("localhost") ? "http" : "https");
+    const apiKeyString = auth(request);
+    const keyParam = apiKeyString ? `apiKey=${encodeURIComponent(apiKeyString)}` : `k=${encodeURIComponent(apiKeyId)}`;
+    const shortUrl = `${proto}://${host}/mcp/calendar/connect?${keyParam}`;
+
     return {
-      auth_url: authUrl,
-      redirect_uri: redirectUri,
-      message:
-        "Vui lòng mở liên kết sau trong trình duyệt để đăng nhập và kết nối thêm tài khoản Google Calendar:",
+      auth_url: shortUrl,
+      message: `Vui lòng gửi link này cho người dùng mở trên trình duyệt: ${shortUrl}`,
     };
   }
 
@@ -424,21 +428,24 @@ export async function dispatchCalendarTool({ apiKeyId, name, args, request }) {
 
   if (!account || authStatus === "not_found") {
     const redirectUri = getCallbackUri(request);
+    const host = request.headers.get("host") || "localhost:20127";
+    const proto =
+      request.headers.get("x-forwarded-proto") ||
+      (host.startsWith("localhost") ? "http" : "https");
+    const shortUrl = `${proto}://${host}/mcp/calendar/connect?k=${encodeURIComponent(apiKeyId)}`;
+
     const actionId = await savePendingAction({
       apiKeyId,
       tool: name,
       args,
       ttlMinutes: 15,
     });
-    const authUrl = buildAuthUrl({ apiKeyId, actionId, redirectUri });
 
     return {
       status: "auth_required",
-      message: `Tài khoản chưa được kết nối Google Calendar. Vui lòng bấm vào liên kết sau để cấp quyền. Sau khi cấp quyền, yêu cầu '${name}' sẽ tự động được thực hiện:\n\n${authUrl}`,
-      auth_url: authUrl,
+      auth_url: shortUrl,
+      message: `Cần xác thực Google Calendar. Hãy gửi link này cho người dùng bấm vào: ${shortUrl}`,
       action_id: actionId,
-      pending_tool: name,
-      expires_in_minutes: 15,
     };
   }
 
