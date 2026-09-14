@@ -142,7 +142,12 @@ function extractApiKey(request) {
   if (apiKeyHeader) return apiKeyHeader;
   const googleApiKeyHeader = request.headers.get("x-goog-api-key");
   if (googleApiKeyHeader) return googleApiKeyHeader;
-  return request.nextUrl.searchParams?.get("key") || null;
+  return (
+    request.nextUrl.searchParams?.get("apiKey") ||
+    request.nextUrl.searchParams?.get("api_key") ||
+    request.nextUrl.searchParams?.get("key") ||
+    null
+  );
 }
 
 async function hasValidApiKey(request) {

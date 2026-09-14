@@ -227,6 +227,7 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
           {displayModels.map((model) => {
             const fullModel = `${providerAlias}/${model.id}`;
             const existingAlias = Object.entries(modelAliases).find(([, m]) => m === fullModel)?.[0];
+            const allowTest = !kindFilter;
             return (
               <ModelRow
                 key={model.id}
@@ -237,29 +238,32 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
                 onCopy={copy}
                 onSetAlias={(alias) => handleSetAlias(model.id, alias)}
                 onDeleteAlias={() => handleDeleteAlias(existingAlias)}
-                testStatus={modelTestResults[model.id]}
-                onTest={() => handleTestModel(model.id)}
+                testStatus={allowTest ? modelTestResults[model.id] : undefined}
+                onTest={allowTest ? () => handleTestModel(model.id) : undefined}
                 isTesting={testingModelId === model.id}
                 isFree={model.isFree}
               />
             );
           })}
 
-          {myCustomModels.map((model) => (
-            <ModelRow
-              key={`${model.id}-${model.type}`}
-              model={{ id: model.id, name: model.name }}
-              fullModel={`${providerAlias}/${model.id}`}
-              copied={copied}
-              onCopy={copy}
-              onSetAlias={() => {}}
-              onDeleteAlias={() => handleDeleteCustomModel(model.id)}
-              testStatus={modelTestResults[model.id]}
-              onTest={() => handleTestModel(model.id)}
-              isTesting={testingModelId === model.id}
-              isCustom
-            />
-          ))}
+          {myCustomModels.map((model) => {
+            const allowTest = !kindFilter;
+            return (
+              <ModelRow
+                key={`${model.id}-${model.type}`}
+                model={{ id: model.id, name: model.name }}
+                fullModel={`${providerAlias}/${model.id}`}
+                copied={copied}
+                onCopy={copy}
+                onSetAlias={() => {}}
+                onDeleteAlias={() => handleDeleteCustomModel(model.id)}
+                testStatus={allowTest ? modelTestResults[model.id] : undefined}
+                onTest={allowTest ? () => handleTestModel(model.id) : undefined}
+                isTesting={testingModelId === model.id}
+                isCustom
+              />
+            );
+          })}
 
           <button
             onClick={() => setShowAddCustomModel(true)}

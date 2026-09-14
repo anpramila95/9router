@@ -243,7 +243,47 @@ export async function POST(request) {
         });
       }
 
-      // Generic probe for tts/embedding providers (config-driven)
+      // Custom probe for ai2w and gpt2api (g2a)
+      if (provider === "ai2w" || provider === "aivideoworkflow") {
+        const rawBase = providerSpecificData?.baseUrl || AI_PROVIDERS[provider]?.imageConfig?.baseUrl || "http://localhost:3000";
+        const base = String(rawBase).replace(/\/+$/, "");
+        const headers = {};
+        if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+        const res = await fetch(`${base}/api/health`, {
+          method: "GET",
+          headers,
+          signal: AbortSignal.timeout(8000),
+        });
+        isValid = res.status === 200;
+        return NextResponse.json({
+          valid: isValid,
+          error: isValid ? null : (res.status === 401 || res.status === 403 ? "Invalid API key" : `Health check failed (HTTP ${res.status})`),
+        });
+      }
+
+      if (provider === "gpt2api" || provider === "g2a") {
+        const rawBase = providerSpecificData?.baseUrl || AI_PROVIDERS[provider]?.ttsConfig?.baseUrl || "https://gpt2api.binhdanhocai.com/v1";
+        let base = String(rawBase).replace(/\/+$/, "");
+        if (base.endsWith("/audio/speech") || base.endsWith("/images/generations")) {
+          base = base.replace(/\/(audio\/speech|images\/generations)$/, "");
+        }
+        if (!base.endsWith("/v1")) {
+          base = `${base}/v1`;
+        }
+        const headers = {};
+        if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+        const res = await fetch(base, {
+          method: "GET",
+          headers,
+          signal: AbortSignal.timeout(8000),
+        });
+        isValid = res.status === 200;
+        return NextResponse.json({
+          valid: isValid,
+          error: isValid ? null : (res.status === 401 || res.status === 403 ? "Invalid API key" : `Validation failed (HTTP ${res.status})`),
+        });
+      }
+
       const mediaResult = await probeMediaProvider(provider, apiKey);
       if (mediaResult !== null) {
         return NextResponse.json({

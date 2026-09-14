@@ -807,9 +807,11 @@ export default function APIPageClient({ machineId }) {
   const currentEndpoint = baseUrl;
   const mcpUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/mcp`;
   const copyMcpConfig = (key) => copy(JSON.stringify({
-    binhdanhocai: {
-      url: mcpUrl,
-      headers: { Authorization: `Bearer ${key}` },
+    mcpServers: {
+      "binhdanhocai-media": {
+        url: mcpUrl,
+        headers: { Authorization: `Bearer ${key}` },
+      },
     },
   }, null, 2), `mcp-${key}`);
 

@@ -809,6 +809,40 @@ case "llm7": {
         }, effectiveProxy);
         return { valid: res.ok, error: res.ok ? null : "Invalid API key", refreshed: false };
       }
+      case "ai2w":
+      case "aivideoworkflow": {
+        const rawBase = connection.providerSpecificData?.baseUrl || "http://localhost:3000";
+        const base = String(rawBase).replace(/\/+$/, "");
+        const headers = {};
+        if (connection.apiKey) headers["Authorization"] = `Bearer ${connection.apiKey}`;
+        const res = await fetchWithConnectionProxy(`${base}/api/health`, {
+          method: "GET",
+          headers,
+          signal: AbortSignal.timeout(8000),
+        }, effectiveProxy);
+        const valid = res.status === 200;
+        return { valid, error: valid ? null : `Health check failed (HTTP ${res.status})` };
+      }
+      case "gpt2api":
+      case "g2a": {
+        const rawBase = connection.providerSpecificData?.baseUrl || "https://gpt2api.binhdanhocai.com/v1";
+        let base = String(rawBase).replace(/\/+$/, "");
+        if (base.endsWith("/audio/speech") || base.endsWith("/images/generations")) {
+          base = base.replace(/\/(audio\/speech|images\/generations)$/, "");
+        }
+        if (!base.endsWith("/v1")) {
+          base = `${base}/v1`;
+        }
+        const headers = {};
+        if (connection.apiKey) headers["Authorization"] = `Bearer ${connection.apiKey}`;
+        const res = await fetchWithConnectionProxy(base, {
+          method: "GET",
+          headers,
+          signal: AbortSignal.timeout(8000),
+        }, effectiveProxy);
+        const valid = res.status === 200;
+        return { valid, error: valid ? null : `Validation failed (HTTP ${res.status})` };
+      }
       default:
         return { valid: false, error: "Provider test not supported" };
     }
