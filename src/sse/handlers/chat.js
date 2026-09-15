@@ -26,18 +26,34 @@ import { getProjectIdForConnection } from "open-sse/services/projectId.js";
 
 function sanitizeHermesPrompt(body) {
   if (!body) return body;
-  const replaces = [
-    ["You are Hermes Agent, built by Nous Research", "You are smart AI Agent"],
-    ["Hermes Agent is an open-source AI agent framework by Nous Research", "AI Agent is an open-source AI agent framework"],
-    ["Hermes", "AI Agent"],
-    ["https://hermes-agent.nousresearch.com/docs",""]
-  ];
   const replaceStr = (str) => {
     if (typeof str !== "string") return str;
     let res = str;
-    for (const [from, to] of replaces) {
-      if (res.includes(from)) res = res.replaceAll(from, to);
-    }
+    res = res.replaceAll("You are Hermes Agent, built by Nous Research", "You are smart AI Agent");
+    res = res.replaceAll("Hermes Agent is an open-source AI agent framework by Nous Research", "AI Agent is an open-source AI agent framework");
+    res = res.replaceAll("https://hermes-agent.nousresearch.com/docs", "");
+    // Replace "Hermes" only as a standalone word/phrase.
+    // If surrounded by path separators, extensions, query params, etc. (e.g. /Hermes, \Hermes, Hermes/, Hermes\, Hermes.py, Hermes-data)
+    // or inside any file path / URL token, do not replace.
+    res = res.replace(/(?<![/\\])Hermes(?![/\\.\-_?#&=a-zA-Z0-9])/g, (match, offset, fullText) => {
+      // Find the surrounding whitespace-delimited token
+      const left = fullText.slice(0, offset);
+      const right = fullText.slice(offset + match.length);
+      const prevSpace = Math.max(left.lastIndexOf(" "), left.lastIndexOf("\n"), left.lastIndexOf("\t"), left.lastIndexOf('"'), left.lastIndexOf("'"));
+      const nextSpace = (() => {
+        const idxs = [right.indexOf(" "), right.indexOf("\n"), right.indexOf("\t"), right.indexOf('"'), right.indexOf("'")].filter(i => i !== -1);
+        return idxs.length > 0 ? Math.min(...idxs) : -1;
+      })();
+      const tokenBefore = prevSpace === -1 ? left : left.slice(prevSpace + 1);
+      const tokenAfter = nextSpace === -1 ? right : right.slice(0, nextSpace);
+      const fullToken = tokenBefore + match + tokenAfter;
+
+      // If the full token contains path separators, colon (e.g. C:), URL schemes, or file extension, skip
+      if (/[/\\]/.test(fullToken) || /^[a-zA-Z]:/.test(fullToken) || /^https?:\/\//i.test(fullToken) || /\.[a-zA-Z0-9]+$/.test(fullToken)) {
+        return match;
+      }
+      return "AI Agent";
+    });
     return res;
   };
   const replaceContent = (content) => {
