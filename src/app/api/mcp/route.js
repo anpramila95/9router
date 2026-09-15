@@ -1,7 +1,4 @@
 import { NextResponse } from "next/server";
-import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import {
   CALENDAR_TOOLS,
   isCalendarTool,
@@ -391,7 +388,7 @@ async function handle(request) {
         ...args,
       };
       const accessToken =
-        body.access_token || (await getLocalCodexAccessToken());
+        body.access_token;
       if (accessToken) {
         let codexSuccess = false;
         for (let attempt = 0; attempt < 2; attempt++) {
