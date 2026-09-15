@@ -70,9 +70,17 @@ function RecentRequests({ requests = [] }) {
                     </td>
                     <td className="py-1.5 font-mono truncate max-w-[120px]" title={r.model}>{r.model}</td>
                     <td className="py-1.5 text-right whitespace-nowrap">
-                      <span className="text-primary">{fmt(r.promptTokens)}↑</span>
-                      {" "}
-                      <span className="text-success">{fmt(r.completionTokens)}↓</span>
+                      {r.endpoint?.includes("image") ? (
+                        <span className="text-purple-400 font-medium">1 img</span>
+                      ) : r.endpoint?.includes("video") ? (
+                        <span className="text-pink-400 font-medium">1 vid</span>
+                      ) : (
+                        <>
+                          <span className="text-primary">{fmt(r.promptTokens)}↑</span>
+                          {" "}
+                          <span className="text-success">{fmt(r.completionTokens)}↓</span>
+                        </>
+                      )}
                     </td>
                     <td className="py-1.5 text-right text-text-muted whitespace-nowrap"><TimeAgo timestamp={r.timestamp} /></td>
                   </tr>
@@ -258,7 +266,6 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
         const seen = new Set();
         const unique = (d?.connections || []).filter((c) => {
           if (c.isActive === false) return false;
-          if (!isLLMProvider(c.provider)) return false;
           if (seen.has(c.provider)) return false;
           seen.add(c.provider);
           return true;
@@ -267,7 +274,7 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
           nodeName: nodeNameMap[c.provider] || null,
         }));
         const noAuthProviders = Object.values(FREE_PROVIDERS)
-          .filter((p) => p.noAuth && !seen.has(p.id) && isLLMProvider(p.id))
+          .filter((p) => p.noAuth && !seen.has(p.id))
           .map((p) => ({ provider: p.id, name: p.name }));
         setProviders([...unique, ...noAuthProviders]);
       })

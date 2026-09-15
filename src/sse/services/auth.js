@@ -317,17 +317,34 @@ export async function clearAccountError(connectionId, currentConnection, model =
  * Extract API key from request headers
  */
 export function extractApiKey(request) {
-  // Check Authorization header first
-  const authHeader = request.headers.get("Authorization");
-  if (authHeader?.startsWith("Bearer ")) {
-    return authHeader.slice(7);
+  if (!request) return null;
+  const headers = request.headers;
+  if (headers) {
+    const authHeader = headers.get("Authorization") || headers.get("authorization");
+    if (authHeader?.startsWith("Bearer ")) {
+      return authHeader.slice(7).trim();
+    }
+    const xApiKey = headers.get("x-api-key") || headers.get("X-API-KEY");
+    if (xApiKey) {
+      return xApiKey.trim();
+    }
+    const xGoogKey = headers.get("x-goog-api-key") || headers.get("X-GOOG-API-KEY");
+    if (xGoogKey) {
+      return xGoogKey.trim();
+    }
   }
 
-  // Check Anthropic x-api-key header
-  const xApiKey = request.headers.get("x-api-key");
-  if (xApiKey) {
-    return xApiKey;
-  }
+  try {
+    const urlStr = request.url || request.nextUrl?.toString?.();
+    if (urlStr) {
+      const url = new URL(urlStr, "http://localhost");
+      const paramKey =
+        url.searchParams.get("apiKey") ||
+        url.searchParams.get("api_key") ||
+        url.searchParams.get("key");
+      if (paramKey) return paramKey.trim();
+    }
+  } catch {}
 
   return null;
 }

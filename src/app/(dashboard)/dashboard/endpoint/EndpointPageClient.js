@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import PropTypes from "prop-types";
-import { Card, Button, Input, Modal, CardSkeleton, Toggle, ConfirmModal } from "@/shared/components";
+import { Card, Button, Input, Modal, CardSkeleton, Toggle, ConfirmModal, ModelSelectModal } from "@/shared/components";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import {
   TUNNEL_BENEFITS,
@@ -28,6 +28,7 @@ export default function APIPageClient({ machineId }) {
   const [newKeyLimit30d, setNewKeyLimit30d] = useState("");
   const [newKeyLimitImageDaily, setNewKeyLimitImageDaily] = useState("");
   const [newKeyLimitVideoDaily, setNewKeyLimitVideoDaily] = useState("");
+  const [newKeyModels, setNewKeyModels] = useState([]);
   const [createdKey, setCreatedKey] = useState(null);
   const [confirmState, setConfirmState] = useState(null);
 
@@ -44,6 +45,10 @@ export default function APIPageClient({ machineId }) {
   const [editKeyLimit30d, setEditKeyLimit30d] = useState("");
   const [editKeyLimitImageDaily, setEditKeyLimitImageDaily] = useState("");
   const [editKeyLimitVideoDaily, setEditKeyLimitVideoDaily] = useState("");
+  const [editKeyModels, setEditKeyModels] = useState([]);
+
+  const [activeProviders, setActiveProviders] = useState([]);
+  const [showModelSelectFor, setShowModelSelectFor] = useState(null);
 
   const [requireApiKey, setRequireApiKey] = useState(false);
   const [requireLogin, setRequireLogin] = useState(true);
@@ -282,7 +287,16 @@ export default function APIPageClient({ machineId }) {
         return data.keys || [];
       };
 
-      let existing = await fetchKeys();
+      const [existingKeys, providersRes] = await Promise.all([
+        fetchKeys(),
+        fetch("/api/providers").then((r) => (r.ok ? r.json() : { connections: [] })).catch(() => ({ connections: [] })),
+      ]);
+
+      if (providersRes?.connections) {
+        setActiveProviders(providersRes.connections);
+      }
+
+      let existing = existingKeys;
       // Auto-provision a default key for first-time users so the endpoint works out of the box.
       if (existing.length === 0) {
         try {
@@ -652,11 +666,12 @@ export default function APIPageClient({ machineId }) {
         body: JSON.stringify({
           name: newKeyName,
           key: newCustomKeyValue.trim() || undefined,
-          limit5h: newKeyLimit5h ? Number(newKeyLimit5h) : undefined,
-          limit7d: newKeyLimit7d ? Number(newKeyLimit7d) : undefined,
-          limit30d: newKeyLimit30d ? Number(newKeyLimit30d) : undefined,
-          limitImageDaily: newKeyLimitImageDaily ? Number(newKeyLimitImageDaily) : undefined,
-          limitVideoDaily: newKeyLimitVideoDaily ? Number(newKeyLimitVideoDaily) : undefined,
+          limit5h: newKeyLimit5h !== "" ? Number(newKeyLimit5h) : undefined,
+          limit7d: newKeyLimit7d !== "" ? Number(newKeyLimit7d) : undefined,
+          limit30d: newKeyLimit30d !== "" ? Number(newKeyLimit30d) : undefined,
+          limitImageDaily: newKeyLimitImageDaily !== "" ? Number(newKeyLimitImageDaily) : undefined,
+          limitVideoDaily: newKeyLimitVideoDaily !== "" ? Number(newKeyLimitVideoDaily) : undefined,
+          models: newKeyModels.length > 0 ? newKeyModels : undefined,
         }),
       });
       const data = await res.json();
@@ -671,6 +686,7 @@ export default function APIPageClient({ machineId }) {
         setNewKeyLimit30d("");
         setNewKeyLimitImageDaily("");
         setNewKeyLimitVideoDaily("");
+        setNewKeyModels([]);
         setShowAddModal(false);
       }
     } catch (error) {
@@ -754,6 +770,7 @@ export default function APIPageClient({ machineId }) {
     setEditKeyLimit30d(key.limit30d != null ? String(key.limit30d) : "");
     setEditKeyLimitImageDaily(key.limitImageDaily != null ? String(key.limitImageDaily) : "");
     setEditKeyLimitVideoDaily(key.limitVideoDaily != null ? String(key.limitVideoDaily) : "");
+    setEditKeyModels(Array.isArray(key.models) ? key.models : []);
     setShowEditModal(true);
   };
 
@@ -764,11 +781,12 @@ export default function APIPageClient({ machineId }) {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          limit5h: editKeyLimit5h ? Number(editKeyLimit5h) : null,
-          limit7d: editKeyLimit7d ? Number(editKeyLimit7d) : null,
-          limit30d: editKeyLimit30d ? Number(editKeyLimit30d) : null,
-          limitImageDaily: editKeyLimitImageDaily ? Number(editKeyLimitImageDaily) : null,
-          limitVideoDaily: editKeyLimitVideoDaily ? Number(editKeyLimitVideoDaily) : null,
+          limit5h: editKeyLimit5h !== "" ? Number(editKeyLimit5h) : null,
+          limit7d: editKeyLimit7d !== "" ? Number(editKeyLimit7d) : null,
+          limit30d: editKeyLimit30d !== "" ? Number(editKeyLimit30d) : null,
+          limitImageDaily: editKeyLimitImageDaily !== "" ? Number(editKeyLimitImageDaily) : null,
+          limitVideoDaily: editKeyLimitVideoDaily !== "" ? Number(editKeyLimitVideoDaily) : null,
+          models: editKeyModels.length > 0 ? editKeyModels : null,
         }),
       });
       if (res.ok) {
@@ -780,6 +798,7 @@ export default function APIPageClient({ machineId }) {
         setEditKeyLimit30d("");
         setEditKeyLimitImageDaily("");
         setEditKeyLimitVideoDaily("");
+        setEditKeyModels([]);
       }
     } catch (error) {
       console.log("Error updating limits:", error);
@@ -1203,6 +1222,15 @@ export default function APIPageClient({ machineId }) {
                         ].filter(Boolean).join(" · ")}`
                       : "No limit"}
                   </p>
+                  <p className="text-xs text-text-muted mt-1">
+                    {Array.isArray(key.models) && key.models.length > 0 ? (
+                      <span className="text-primary font-medium">
+                        Allowed models ({key.models.length}): {key.models.join(", ")}
+                      </span>
+                    ) : (
+                      <span>Allowed models: All</span>
+                    )}
+                  </p>
                   {key.isActive === false && (
                     <p className="text-xs text-orange-500 mt-1">Paused</p>
                   )}
@@ -1343,6 +1371,52 @@ export default function APIPageClient({ machineId }) {
               />
             </div>
           </div>
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-sm font-medium">Allowed Models (Text only)</label>
+              <Button
+                size="sm"
+                variant="secondary"
+                icon="add"
+                onClick={() => setShowModelSelectFor("create")}
+              >
+                Select Models
+              </Button>
+            </div>
+            <p className="text-xs text-text-muted mb-2">
+              Leave empty to allow all models. Select specific text models to restrict this key.
+            </p>
+            {newKeyModels.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5 p-2 bg-black/5 dark:bg-white/5 rounded-lg border border-black/10 dark:border-white/10 max-h-36 overflow-y-auto">
+                {newKeyModels.map((m) => (
+                  <span
+                    key={m}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs border border-primary/20"
+                  >
+                    <span>{m}</span>
+                    <button
+                      type="button"
+                      onClick={() => setNewKeyModels((prev) => prev.filter((x) => x !== m))}
+                      className="hover:text-red-500 transition-colors ml-0.5 cursor-pointer"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setNewKeyModels([])}
+                  className="text-xs text-red-500 hover:underline px-1 py-0.5 ml-auto"
+                >
+                  Clear all
+                </button>
+              </div>
+            ) : (
+              <div className="text-xs text-text-muted italic px-2 py-1.5 bg-black/5 dark:bg-white/5 rounded border border-dashed border-black/10 dark:border-white/10">
+                All models allowed (no restriction)
+              </div>
+            )}
+          </div>
           <div className="flex gap-2">
             <Button onClick={handleCreateKey} fullWidth disabled={!newKeyName.trim()}>
               Create
@@ -1357,6 +1431,7 @@ export default function APIPageClient({ machineId }) {
                 setNewKeyLimit30d("");
                 setNewKeyLimitImageDaily("");
                 setNewKeyLimitVideoDaily("");
+                setNewKeyModels([]);
               }}
               variant="ghost"
               fullWidth
@@ -1416,7 +1491,7 @@ export default function APIPageClient({ machineId }) {
       >
         <div className="flex flex-col gap-4">
           <p className="text-xs text-text-muted">
-            Leave blank for no limit. Requests over the limit return HTTP 429.
+            Leave blank for no limit. Enter 0 to disable. Requests over the limit return HTTP 429.
           </p>
           <div>
             <p className="text-sm font-medium mb-2">Daily Media Limits</p>
@@ -1466,6 +1541,52 @@ export default function APIPageClient({ machineId }) {
               placeholder="No limit"
             />
           </div>
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-sm font-medium">Allowed Models (Text only)</label>
+              <Button
+                size="sm"
+                variant="secondary"
+                icon="add"
+                onClick={() => setShowModelSelectFor("edit")}
+              >
+                Select Models
+              </Button>
+            </div>
+            <p className="text-xs text-text-muted mb-2">
+              Leave empty to allow all models. Select specific text models to restrict this key.
+            </p>
+            {editKeyModels.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5 p-2 bg-black/5 dark:bg-white/5 rounded-lg border border-black/10 dark:border-white/10 max-h-36 overflow-y-auto">
+                {editKeyModels.map((m) => (
+                  <span
+                    key={m}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs border border-primary/20"
+                  >
+                    <span>{m}</span>
+                    <button
+                      type="button"
+                      onClick={() => setEditKeyModels((prev) => prev.filter((x) => x !== m))}
+                      className="hover:text-red-500 transition-colors ml-0.5 cursor-pointer"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setEditKeyModels([])}
+                  className="text-xs text-red-500 hover:underline px-1 py-0.5 ml-auto"
+                >
+                  Clear all
+                </button>
+              </div>
+            ) : (
+              <div className="text-xs text-text-muted italic px-2 py-1.5 bg-black/5 dark:bg-white/5 rounded border border-dashed border-black/10 dark:border-white/10">
+                All models allowed (no restriction)
+              </div>
+            )}
+          </div>
           <div className="flex gap-2">
             <Button onClick={handleSaveLimits} fullWidth>
               Save
@@ -1477,6 +1598,9 @@ export default function APIPageClient({ machineId }) {
                 setEditKeyLimit5h("");
                 setEditKeyLimit7d("");
                 setEditKeyLimit30d("");
+                setEditKeyLimitImageDaily("");
+                setEditKeyLimitVideoDaily("");
+                setEditKeyModels([]);
               }}
               variant="ghost"
               fullWidth
@@ -1642,6 +1766,36 @@ export default function APIPageClient({ machineId }) {
         message={confirmState?.message}
         variant="danger"
       />
+
+      {/* Allowed Models Selector (Text only) */}
+      {showModelSelectFor && (
+        <ModelSelectModal
+          isOpen={!!showModelSelectFor}
+          onClose={() => setShowModelSelectFor(null)}
+          onSelect={(m) => {
+            const val = typeof m === "string" ? m : m?.value || m?.name || m?.id;
+            if (!val) return;
+            if (showModelSelectFor === "create") {
+              setNewKeyModels((prev) => (prev.includes(val) ? prev : [...prev, val]));
+            } else if (showModelSelectFor === "edit") {
+              setEditKeyModels((prev) => (prev.includes(val) ? prev : [...prev, val]));
+            }
+          }}
+          onDeselect={(m) => {
+            const val = typeof m === "string" ? m : m?.value || m?.name || m?.id;
+            if (!val) return;
+            if (showModelSelectFor === "create") {
+              setNewKeyModels((prev) => prev.filter((x) => x !== val));
+            } else if (showModelSelectFor === "edit") {
+              setEditKeyModels((prev) => prev.filter((x) => x !== val));
+            }
+          }}
+          addedModelValues={showModelSelectFor === "create" ? newKeyModels : editKeyModels}
+          activeProviders={activeProviders}
+          closeOnSelect={false}
+          title="Select Allowed Models (Text)"
+        />
+      )}
     </div>
   );
 }

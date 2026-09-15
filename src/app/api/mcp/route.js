@@ -22,7 +22,22 @@ const mediaTools = [
       properties: {
         model: { type: "string", default: "g2a/gpt-image-2" },
         prompt: { type: "string" },
-
+        images: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              image_url: {
+                type: "string",
+                description:
+                  "Image URL (http/https) or Base64 image data (data URI or raw base64 string)",
+              },
+            },
+            required: ["image_url"],
+          },
+          description:
+            "Optional reference input images in [{ image_url: string }] format for image-to-image or editing. Supports public URLs or Base64 data strings.",
+        },
         aspectRatio: {
           type: "string",
           description: "Image aspect ratio, for example 1:1 or 16:9",

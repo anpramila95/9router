@@ -8,7 +8,7 @@ import {
   isValidApiKey,
   checkApiKeyTokenLimit,
 } from "../services/auth.js";
-import { getSettings } from "@/lib/localDb";
+import { getSettings, getApiKeyByKey } from "@/lib/localDb";
 import { getModelInfo, getComboModels } from "../services/model.js";
 import { handleChatCore } from "open-sse/handlers/chatCore.js";
 import { DEFAULT_HEADROOM_URL } from "@/lib/headroom/detect";
@@ -159,6 +159,17 @@ export async function handleChat(request, clientRawRequest = null) {
   if (!modelStr) {
     log.warn("CHAT", "Missing model");
     return errorResponse(HTTP_STATUS.BAD_REQUEST, "Missing model");
+  }
+
+  // Enforce allowed models if key has restrictions
+  if (apiKey) {
+    const keyObj = await getApiKeyByKey(apiKey);
+    if (keyObj && Array.isArray(keyObj.models) && keyObj.models.length > 0) {
+      if (!keyObj.models.includes(modelStr)) {
+        log.warn("AUTH", `Model "${modelStr}" not allowed for API key "${keyObj.name || apiKey}"`);
+        return errorResponse(HTTP_STATUS.FORBIDDEN, `Model "${modelStr}" is not allowed for this API key`);
+      }
+    }
   }
 
   // Bypass naming/warmup requests before combo rotation to avoid wasting rotation slots

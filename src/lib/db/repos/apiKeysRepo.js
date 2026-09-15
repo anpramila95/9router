@@ -15,7 +15,25 @@ function rowToKey(row) {
     limit30d: row.limit30d != null ? Number(row.limit30d) : null,
     limitImageDaily: row.limitImageDaily != null ? Number(row.limitImageDaily) : null,
     limitVideoDaily: row.limitVideoDaily != null ? Number(row.limitVideoDaily) : null,
+    models: normModels(row.models),
   };
+}
+
+function normModels(v) {
+  if (v === undefined || v === null || v === "") return null;
+  let arr = v;
+  if (typeof v === "string") {
+    try {
+      arr = JSON.parse(v);
+    } catch {
+      arr = v.split(",").map((s) => s.trim()).filter(Boolean);
+    }
+  }
+  if (!Array.isArray(arr)) return null;
+  const filtered = arr
+    .map((item) => (typeof item === "string" ? item.trim() : (item?.model || item?.id || item?.value || "")))
+    .filter(Boolean);
+  return filtered.length > 0 ? Array.from(new Set(filtered)) : null;
 }
 
 function normLimit(v) {
@@ -89,7 +107,14 @@ export async function getApiKeyById(id) {
   return rowToKey(row);
 }
 
-export async function createApiKey(name, machineId, limits = {}, customKey = null) {
+export async function getApiKeyByKey(key) {
+  if (!key) return null;
+  const db = await getAdapter();
+  const row = db.get(`SELECT * FROM apiKeys WHERE key = ?`, [key]);
+  return rowToKey(row);
+}
+
+export async function createApiKey(name, machineId, limits = {}, customKey = null, models = null) {
   if (!machineId) throw new Error("machineId is required");
   const db = await getAdapter();
   let keyToUse = (typeof customKey === "string" && customKey.trim()) ? customKey.trim() : null;
@@ -98,6 +123,7 @@ export async function createApiKey(name, machineId, limits = {}, customKey = nul
     const result = generateApiKeyWithMachine(machineId);
     keyToUse = result.key;
   }
+  const modelsVal = normModels(limits?.models ?? models);
   const apiKey = {
     id: uuidv4(),
     name,
@@ -110,10 +136,24 @@ export async function createApiKey(name, machineId, limits = {}, customKey = nul
     limit30d: normLimit(limits.limit30d),
     limitImageDaily: normLimit(limits.limitImageDaily),
     limitVideoDaily: normLimit(limits.limitVideoDaily),
+    models: modelsVal,
   };
   db.run(
-    `INSERT INTO apiKeys(id, key, name, machineId, isActive, createdAt, limit5h, limit7d, limit30d, limitImageDaily, limitVideoDaily) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [apiKey.id, apiKey.key, apiKey.name, apiKey.machineId, 1, apiKey.createdAt, apiKey.limit5h, apiKey.limit7d, apiKey.limit30d, apiKey.limitImageDaily, apiKey.limitVideoDaily]
+    `INSERT INTO apiKeys(id, key, name, machineId, isActive, createdAt, limit5h, limit7d, limit30d, limitImageDaily, limitVideoDaily, models) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      apiKey.id,
+      apiKey.key,
+      apiKey.name,
+      apiKey.machineId,
+      1,
+      apiKey.createdAt,
+      apiKey.limit5h,
+      apiKey.limit7d,
+      apiKey.limit30d,
+      apiKey.limitImageDaily,
+      apiKey.limitVideoDaily,
+      modelsVal ? JSON.stringify(modelsVal) : null,
+    ]
   );
   return apiKey;
 }
@@ -130,9 +170,22 @@ export async function updateApiKey(id, data) {
     if (data.limit30d !== undefined) merged.limit30d = normLimit(data.limit30d);
     if (data.limitImageDaily !== undefined) merged.limitImageDaily = normLimit(data.limitImageDaily);
     if (data.limitVideoDaily !== undefined) merged.limitVideoDaily = normLimit(data.limitVideoDaily);
+    if (data.models !== undefined) merged.models = normModels(data.models);
     db.run(
-      `UPDATE apiKeys SET key = ?, name = ?, machineId = ?, isActive = ?, limit5h = ?, limit7d = ?, limit30d = ?, limitImageDaily = ?, limitVideoDaily = ? WHERE id = ?`,
-      [merged.key, merged.name, merged.machineId, merged.isActive ? 1 : 0, merged.limit5h, merged.limit7d, merged.limit30d, merged.limitImageDaily, merged.limitVideoDaily, id]
+      `UPDATE apiKeys SET key = ?, name = ?, machineId = ?, isActive = ?, limit5h = ?, limit7d = ?, limit30d = ?, limitImageDaily = ?, limitVideoDaily = ?, models = ? WHERE id = ?`,
+      [
+        merged.key,
+        merged.name,
+        merged.machineId,
+        merged.isActive ? 1 : 0,
+        merged.limit5h,
+        merged.limit7d,
+        merged.limit30d,
+        merged.limitImageDaily,
+        merged.limitVideoDaily,
+        merged.models ? JSON.stringify(merged.models) : null,
+        id,
+      ]
     );
     result = merged;
   });
@@ -166,6 +219,15 @@ export async function getApiKeyLimitStatus(key, kind = "token") {
   // Kind-specific check (Image)
   if (kind === "image" && row.limitImageDaily != null) {
     const limit = Number(row.limitImageDaily);
+    if (limit === 0) {
+      return {
+        allowed: false,
+        limit: 0,
+        used: 0,
+        window: "24 hours",
+        message: "Image generation is disabled for this API key (limit is 0)",
+      };
+    }
     const res = db.get(
       `SELECT COUNT(*) AS total FROM usageHistory WHERE apiKey = ? AND endpoint LIKE '%images%' AND timestamp >= ?`,
       [key, cutoff24h]
@@ -185,6 +247,15 @@ export async function getApiKeyLimitStatus(key, kind = "token") {
   // Kind-specific check (Video)
   if (kind === "video" && row.limitVideoDaily != null) {
     const limit = Number(row.limitVideoDaily);
+    if (limit === 0) {
+      return {
+        allowed: false,
+        limit: 0,
+        used: 0,
+        window: "24 hours",
+        message: "Video generation is disabled for this API key (limit is 0)",
+      };
+    }
     const res = db.get(
       `SELECT COUNT(*) AS total FROM usageHistory WHERE apiKey = ? AND endpoint LIKE '%videos%' AND timestamp >= ?`,
       [key, cutoff24h]

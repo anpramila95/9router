@@ -1,4 +1,6 @@
 import { buildModelsList } from "../route.js";
+import { getApiKeyByKey } from "@/lib/localDb";
+import { extractApiKey } from "@/sse/services/auth.js";
 
 // URL slug → service kind(s). `web` covers both webSearch and webFetch.
 const KIND_SLUG_MAP = {
@@ -26,6 +28,21 @@ export async function OPTIONS() {
  */
 export async function GET(_request, { params }) {
   try {
+    const apiKey = extractApiKey(_request);
+    if (!apiKey) {
+      return Response.json(
+        { error: { message: "Missing API key", type: "authentication_error" } },
+        { status: 401, headers: { "Access-Control-Allow-Origin": "*" } }
+      );
+    }
+    const keyObj = await getApiKeyByKey(apiKey);
+    if (!keyObj || keyObj.isActive === false) {
+      return Response.json(
+        { error: { message: "Invalid API key", type: "authentication_error" } },
+        { status: 401, headers: { "Access-Control-Allow-Origin": "*" } }
+      );
+    }
+
     const { kind } = await params;
     const kindFilter = KIND_SLUG_MAP[kind];
 
@@ -41,7 +58,13 @@ export async function GET(_request, { params }) {
       );
     }
 
-    const data = await buildModelsList(kindFilter);
+    let data = await buildModelsList(kindFilter);
+
+    if (Array.isArray(keyObj.models) && keyObj.models.length > 0) {
+      const allowedSet = new Set(keyObj.models);
+      data = data.filter((m) => allowedSet.has(m.id));
+    }
+
     return Response.json({ object: "list", data }, {
       headers: { "Access-Control-Allow-Origin": "*" },
     });
@@ -49,7 +72,7 @@ export async function GET(_request, { params }) {
     console.log("Error fetching models by kind:", error);
     return Response.json(
       { error: { message: error.message, type: "server_error" } },
-      { status: 500 }
+      { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
     );
   }
 }

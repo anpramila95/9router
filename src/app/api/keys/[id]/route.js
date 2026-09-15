@@ -21,7 +21,7 @@ export async function PUT(request, { params }) {
   try {
     const { id } = await params;
     const body = await request.json();
-    const { isActive, limit5h, limit7d, limit30d, limitImageDaily, limitVideoDaily } = body;
+    const { isActive, limit5h, limit7d, limit30d, limitImageDaily, limitVideoDaily, models } = body;
 
     const existing = await getApiKeyById(id);
     if (!existing) {
@@ -35,6 +35,7 @@ export async function PUT(request, { params }) {
     if (limit30d !== undefined) updateData.limit30d = limit30d;
     if (limitImageDaily !== undefined) updateData.limitImageDaily = limitImageDaily;
     if (limitVideoDaily !== undefined) updateData.limitVideoDaily = limitVideoDaily;
+    if (models !== undefined) updateData.models = models;
 
     const updated = await updateApiKey(id, updateData);
 

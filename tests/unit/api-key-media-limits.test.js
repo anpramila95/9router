@@ -64,4 +64,22 @@ describe("API Key Media Limits (Image / Video per day)", () => {
     expect(status.allowed).toBe(false);
     expect(status.message).toContain("Video daily limit exceeded");
   });
+
+  it("blocks generation when limit is 0", async () => {
+    const zeroKey = await createApiKey("Zero Media Key", "mach-1", {
+      limitImageDaily: 0,
+      limitVideoDaily: 0,
+    });
+    try {
+      const imgStatus = await getApiKeyLimitStatus(zeroKey.key, "image");
+      expect(imgStatus.allowed).toBe(false);
+      expect(imgStatus.message).toContain("Image generation is disabled");
+
+      const vidStatus = await getApiKeyLimitStatus(zeroKey.key, "video");
+      expect(vidStatus.allowed).toBe(false);
+      expect(vidStatus.message).toContain("Video generation is disabled");
+    } finally {
+      await deleteApiKey(zeroKey.id);
+    }
+  });
 });
