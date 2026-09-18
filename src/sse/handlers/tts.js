@@ -9,6 +9,7 @@ import { errorResponse, unavailableResponse } from "open-sse/utils/error.js";
 import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
 import { AI_PROVIDERS } from "@/shared/constants/providers";
 import { handleComboChat } from "open-sse/services/combo.js";
+import { notifyMediaError } from "@/lib/telegramNotifier.js";
 import * as log from "../utils/logger.js";
 
 // Derived from providers.js: any TTS provider not noAuth requires stored credentials
@@ -91,10 +92,38 @@ async function handleSingleModelTts(body, modelStr, responseFormat, language, st
       if (credentials?.allRateLimited) {
         const msg = lastError || credentials.lastError || "Unavailable";
         const status = lastStatus || Number(credentials.lastErrorCode) || HTTP_STATUS.SERVICE_UNAVAILABLE;
+        notifyMediaError({
+          type: "speech",
+          provider,
+          model,
+          status,
+          error: msg,
+          prompt: body?.input,
+        }).catch(() => {});
         return unavailableResponse(status, `[${provider}/${model}] ${msg}`, credentials.retryAfter, credentials.retryAfterHuman);
       }
-      if (excludeConnectionIds.size === 0) return errorResponse(HTTP_STATUS.BAD_REQUEST, `No credentials for provider: ${provider}`);
-      return errorResponse(lastStatus || HTTP_STATUS.SERVICE_UNAVAILABLE, lastError || "All accounts unavailable");
+      if (excludeConnectionIds.size === 0) {
+        notifyMediaError({
+          type: "speech",
+          provider,
+          model,
+          status: HTTP_STATUS.BAD_REQUEST,
+          error: `No credentials for provider: ${provider}`,
+          prompt: body?.input,
+        }).catch(() => {});
+        return errorResponse(HTTP_STATUS.BAD_REQUEST, `No credentials for provider: ${provider}`);
+      }
+      const finalStatus = lastStatus || HTTP_STATUS.SERVICE_UNAVAILABLE;
+      const finalError = lastError || "All accounts unavailable";
+      notifyMediaError({
+        type: "speech",
+        provider,
+        model,
+        status: finalStatus,
+        error: finalError,
+        prompt: body?.input,
+      }).catch(() => {});
+      return errorResponse(finalStatus, finalError);
     }
 
     log.info("AUTH", `\x1b[32mUsing ${provider} account: ${credentials.connectionName}\x1b[0m`);
@@ -110,6 +139,14 @@ async function handleSingleModelTts(body, modelStr, responseFormat, language, st
       lastStatus = result.status;
       continue;
     }
+    notifyMediaError({
+      type: "speech",
+      provider,
+      model,
+      status: result.status,
+      error: result.error,
+      prompt: body?.input,
+    }).catch(() => {});
     return result.response || errorResponse(result.status, result.error);
   }
 }

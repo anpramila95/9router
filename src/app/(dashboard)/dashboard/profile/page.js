@@ -83,6 +83,17 @@ export default function ProfilePage() {
   const [proxyLoading, setProxyLoading] = useState(false);
   const [proxyTestLoading, setProxyTestLoading] = useState(false);
 
+  const [telegramForm, setTelegramForm] = useState({
+    telegramEnabled: false,
+    telegramBotToken: "",
+    telegramChatId: "",
+    telegramProxyEnabled: false,
+    telegramProxyUrl: "",
+  });
+  const [telegramStatus, setTelegramStatus] = useState({ type: "", message: "" });
+  const [telegramLoading, setTelegramLoading] = useState(false);
+  const [telegramTestLoading, setTelegramTestLoading] = useState(false);
+
   useEffect(() => {
     fetch("/api/settings")
       .then((res) => res.json())
@@ -117,6 +128,13 @@ export default function ProfilePage() {
           outboundProxyEnabled: data?.outboundProxyEnabled === true,
           outboundProxyUrl: data?.outboundProxyUrl || "",
           outboundNoProxy: data?.outboundNoProxy || "",
+        });
+        setTelegramForm({
+          telegramEnabled: data?.telegramEnabled === true,
+          telegramBotToken: data?.telegramBotToken || "",
+          telegramChatId: data?.telegramChatId || "",
+          telegramProxyEnabled: data?.telegramProxyEnabled === true,
+          telegramProxyUrl: data?.telegramProxyUrl || "",
         });
         setLoading(false);
       })
@@ -217,9 +235,95 @@ export default function ProfilePage() {
         setProxyStatus({ type: "error", message: data.error || "Failed to update proxy settings" });
       }
     } catch (err) {
-      setProxyStatus({ type: "error", message: "An error occurred" });
+      setProxyStatus({ type: "error", message: err.message || "Network error" });
     } finally {
       setProxyLoading(false);
+    }
+  };
+
+  const updateTelegramSettings = async (e) => {
+    if (e) e.preventDefault();
+    setTelegramLoading(true);
+    setTelegramStatus({ type: "", message: "" });
+
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(telegramForm),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setSettings((prev) => ({ ...prev, ...data }));
+        setTelegramStatus({ type: "success", message: "Telegram settings saved" });
+      } else {
+        setTelegramStatus({ type: "error", message: data.error || "Failed to update Telegram settings" });
+      }
+    } catch (err) {
+      setTelegramStatus({ type: "error", message: err.message || "Network error" });
+    } finally {
+      setTelegramLoading(false);
+    }
+  };
+
+  const updateTelegramEnabled = async (telegramEnabled) => {
+    setTelegramLoading(true);
+    setTelegramStatus({ type: "", message: "" });
+    setTelegramForm((prev) => ({ ...prev, telegramEnabled }));
+
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ telegramEnabled }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setSettings((prev) => ({ ...prev, ...data }));
+        setTelegramStatus({
+          type: "success",
+          message: telegramEnabled ? "Telegram alert enabled" : "Telegram alert disabled",
+        });
+      } else {
+        setTelegramStatus({ type: "error", message: data.error || "Failed to update Telegram settings" });
+      }
+    } catch (err) {
+      setTelegramStatus({ type: "error", message: err.message || "Network error" });
+    } finally {
+      setTelegramLoading(false);
+    }
+  };
+
+  const testTelegram = async () => {
+    const token = (telegramForm.telegramBotToken || "").trim();
+    const chatId = (telegramForm.telegramChatId || "").trim();
+    if (!token || !chatId) {
+      setTelegramStatus({ type: "error", message: "Please enter both Bot Token and Chat ID" });
+      return;
+    }
+
+    setTelegramTestLoading(true);
+    setTelegramStatus({ type: "", message: "" });
+
+    try {
+      const res = await fetch("/api/settings/telegram-test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(telegramForm),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setTelegramStatus({ type: "success", message: "✅ Test message sent to Telegram successfully!" });
+      } else {
+        setTelegramStatus({ type: "error", message: data.error || "Failed to send test message" });
+      }
+    } catch (err) {
+      setTelegramStatus({ type: "error", message: err.message || "Network error" });
+    } finally {
+      setTelegramTestLoading(false);
     }
   };
 
@@ -1723,6 +1827,104 @@ export default function ProfilePage() {
             {proxyStatus.message && (
               <p className={`text-xs sm:text-sm ${proxyStatus.type === "error" ? "text-red-500" : "text-green-500"} pt-2 border-t border-border/50`}>
                 {proxyStatus.message}
+              </p>
+            )}
+          </div>
+        </Card>
+
+        {/* Telegram Notifications */}
+        <Card>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2 rounded-lg bg-sky-500/10 text-sky-500 shrink-0">
+              <span className="material-symbols-outlined text-[20px]">send</span>
+            </div>
+            <h3 className="text-base sm:text-lg font-semibold">Telegram Alert</h3>
+          </div>
+
+          <div className="flex flex-col gap-4">
+            <div className="flex items-start sm:items-center justify-between gap-4">
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-sm sm:text-base">Media Error Alerts</p>
+                <p className="text-xs sm:text-sm text-text-muted">
+                  Automatically send alerts to Telegram when Image, Video, or Speech generation fails.
+                </p>
+              </div>
+              <Toggle
+                checked={settings.telegramEnabled === true}
+                onChange={() => updateTelegramEnabled(!(settings.telegramEnabled === true))}
+                disabled={loading || telegramLoading}
+              />
+            </div>
+
+            {settings.telegramEnabled === true && (
+              <form onSubmit={updateTelegramSettings} className="flex flex-col gap-4 pt-2 border-t border-border/50">
+                <div className="flex flex-col gap-2">
+                  <label className="font-medium text-sm sm:text-base">Bot Token</label>
+                  <Input
+                    placeholder="123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ"
+                    value={telegramForm.telegramBotToken}
+                    onChange={(e) => setTelegramForm((prev) => ({ ...prev, telegramBotToken: e.target.value }))}
+                    disabled={loading || telegramLoading}
+                  />
+                  <p className="text-xs sm:text-sm text-text-muted">Telegram Bot token from @BotFather.</p>
+                </div>
+
+                <div className="flex flex-col gap-2 pt-2 border-t border-border/50">
+                  <label className="font-medium text-sm sm:text-base">Chat ID</label>
+                  <Input
+                    placeholder="123456789 hoặc -100123456789"
+                    value={telegramForm.telegramChatId}
+                    onChange={(e) => setTelegramForm((prev) => ({ ...prev, telegramChatId: e.target.value }))}
+                    disabled={loading || telegramLoading}
+                  />
+                  <p className="text-xs sm:text-sm text-text-muted">Personal Telegram user ID or Group/Channel ID.</p>
+                </div>
+
+                <div className="flex items-start sm:items-center justify-between gap-4 pt-2 border-t border-border/50">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-sm sm:text-base">Use Proxy for Telegram</p>
+                    <p className="text-xs sm:text-sm text-text-muted">Route Telegram API requests through HTTP/HTTPS or SOCKS proxy.</p>
+                  </div>
+                  <Toggle
+                    checked={telegramForm.telegramProxyEnabled === true}
+                    onChange={(checked) => setTelegramForm((prev) => ({ ...prev, telegramProxyEnabled: checked }))}
+                    disabled={loading || telegramLoading}
+                  />
+                </div>
+
+                {telegramForm.telegramProxyEnabled === true && (
+                  <div className="flex flex-col gap-2 pt-2">
+                    <label className="font-medium text-sm sm:text-base">Telegram Proxy URL</label>
+                    <Input
+                      placeholder="http://127.0.0.1:7890 hoặc socks5://127.0.0.1:1080"
+                      value={telegramForm.telegramProxyUrl}
+                      onChange={(e) => setTelegramForm((prev) => ({ ...prev, telegramProxyUrl: e.target.value }))}
+                      disabled={loading || telegramLoading}
+                    />
+                  </div>
+                )}
+
+                <div className="pt-2 border-t border-border/50 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    loading={telegramTestLoading}
+                    disabled={loading || telegramLoading}
+                    onClick={testTelegram}
+                    className="w-full sm:w-auto"
+                  >
+                    Send test message
+                  </Button>
+                  <Button type="submit" variant="primary" loading={telegramLoading} className="w-full sm:w-auto">
+                    Save Telegram Settings
+                  </Button>
+                </div>
+              </form>
+            )}
+
+            {telegramStatus.message && (
+              <p className={`text-xs sm:text-sm ${telegramStatus.type === "error" ? "text-red-500" : "text-green-500"} pt-2 border-t border-border/50`}>
+                {telegramStatus.message}
               </p>
             )}
           </div>

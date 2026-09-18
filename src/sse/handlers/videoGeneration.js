@@ -13,6 +13,7 @@ import { errorResponse, unavailableResponse } from "open-sse/utils/error.js";
 import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { saveRequestUsage } from "@/lib/usageDb.js";
+import { notifyMediaError } from "@/lib/telegramNotifier.js";
 import * as log from "../utils/logger.js";
 
 // Video generation is xAI-only today; requests without a provider prefix
@@ -131,12 +132,38 @@ export async function handleVideoCreate(request, action) {
       if (credentials?.allRateLimited) {
         const errorMsg = lastError || credentials.lastError || "Unavailable";
         const status = lastStatus || Number(credentials.lastErrorCode) || HTTP_STATUS.SERVICE_UNAVAILABLE;
+        notifyMediaError({
+          type: "video",
+          provider,
+          model: model || "video",
+          status,
+          error: errorMsg,
+          prompt: bodyInfo?.parsed?.prompt,
+        }).catch(() => {});
         return unavailableResponse(status, `[${provider}/${model || "video"}] ${errorMsg}`, credentials.retryAfter, credentials.retryAfterHuman);
       }
       if (excludeConnectionIds.size === 0) {
+        notifyMediaError({
+          type: "video",
+          provider,
+          model: model || "video",
+          status: HTTP_STATUS.BAD_REQUEST,
+          error: `No credentials for provider: ${provider}`,
+          prompt: bodyInfo?.parsed?.prompt,
+        }).catch(() => {});
         return errorResponse(HTTP_STATUS.BAD_REQUEST, `No credentials for provider: ${provider}`);
       }
-      return errorResponse(lastStatus || HTTP_STATUS.SERVICE_UNAVAILABLE, lastError || "All accounts unavailable");
+      const finalStatus = lastStatus || HTTP_STATUS.SERVICE_UNAVAILABLE;
+      const finalError = lastError || "All accounts unavailable";
+      notifyMediaError({
+        type: "video",
+        provider,
+        model: model || "video",
+        status: finalStatus,
+        error: finalError,
+        prompt: bodyInfo?.parsed?.prompt,
+      }).catch(() => {});
+      return errorResponse(finalStatus, finalError);
     }
 
     const refreshedCredentials = await checkAndRefreshToken(provider, credentials);
@@ -202,6 +229,14 @@ export async function handleVideoCreate(request, action) {
       continue;
     }
 
+    notifyMediaError({
+      type: "video",
+      provider,
+      model: model || "video",
+      status: result.status,
+      error: result.error,
+      prompt: bodyInfo?.parsed?.prompt,
+    }).catch(() => {});
     return result.response;
   }
 }

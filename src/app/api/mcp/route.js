@@ -6,6 +6,7 @@ import {
   dispatchCalendarTool,
 } from "./calendar/tools.js";
 import { resolveApiKeyId } from "./calendar/store.js";
+import { notifyMediaError } from "@/lib/telegramNotifier.js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,27 +15,32 @@ const mediaTools = [
   {
     name: "image.upload.getUrl",
     description:
-      "Upload local image, Base64 data, or file to get a public permanent CDN URL. ALWAYS use this tool first when you have a local image or Base64 data to get a public URL before calling image.generate or video.generate.\n" +
-      "Output example: { \"url\": \"https://cdn.../image.png\", \"mime_type\": \"image/png\" }",
+      "Upload image data to get a permanent public CDN URL. ALWAYS call this tool first before calling image.generate or video.generate.\n" +
+      "CRITICAL INSTRUCTION FOR AI AGENTS:\n" +
+      "- DO NOT pass local file paths (e.g. 'C:\\Users\\...' or '/home/...'). The server CANNOT access local paths on remote environments.\n" +
+      "- You MUST read the file contents and pass it as a Base64 Data URI string in 'image' (e.g. 'data:image/png;base64,iVBORw...').\n" +
+      "- Or pass an existing public HTTP/HTTPS image URL in 'image'.\n" +
+      "Output example: { \"url\": \"https://cdn.../image.png\", \"urls\": [\"https://cdn.../image.png\"] }",
     inputSchema: {
       type: "object",
       properties: {
         image: {
           type: "string",
           description:
-            "Image data: Base64 data URI (data:image/...;base64,...), raw base64 string, or public image URL.",
+            "Image content as Base64 Data URI ('data:image/png;base64,...') or public HTTP/HTTPS URL. Local file paths (C:\\... or /path/...) are strictly forbidden.",
         },
         images: {
           type: "array",
           items: { type: ["string", "object"] },
           description:
-            "Optional list of images or [{ image_url: string }] to upload in batch.",
+            "Optional batch upload: array of Base64 Data URIs or public URLs.",
         },
         format: {
           type: "string",
-          description: "Optional format/extension: png, jpg, webp, mp4, etc.",
+          description: "Optional format/extension: png, jpg, webp, mp4, etc. Defaults to png.",
         },
       },
+      required: ["image"],
     },
   },
   {
@@ -337,17 +343,51 @@ function getMimeType(extension) {
   }
 }
 
+async function ensurePngBytes(bytes) {
+  // Check PNG signature: 89 50 4E 47
+  if (
+    bytes &&
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47
+  ) {
+    return bytes;
+  }
+  try {
+    const sharp = (await import("sharp")).default;
+    return await sharp(bytes).png().toBuffer();
+  } catch (err) {
+    console.warn(`[MCP] sharp convert to png failed: ${err.message}`);
+    return bytes;
+  }
+}
+
 async function uploadToDigen(content, options = {}) {
   let bytes;
   let detectedExt = options.format || options.extension;
 
+  console.log(`[uploadToDigen] Input type: ${typeof content}, isBuffer: ${Buffer.isBuffer(content)}, preview: ${typeof content === "string" ? content.slice(0, 100) : JSON.stringify(content)?.slice(0, 100)}`);
+
   if (Buffer.isBuffer(content)) {
     bytes = content;
+  } else if (content instanceof Uint8Array || content instanceof ArrayBuffer) {
+    bytes = Buffer.from(content);
+  } else if (typeof content === "object" && typeof content?.arrayBuffer === "function") {
+    // Blob or File instance
+    bytes = Buffer.from(await content.arrayBuffer());
+    if (content.type && !detectedExt) {
+      const mime = content.type;
+      if (mime.includes("png")) detectedExt = "png";
+      else if (mime.includes("jpeg") || mime.includes("jpg")) detectedExt = "jpg";
+      else if (mime.includes("webp")) detectedExt = "webp";
+    }
   } else if (typeof content === "string") {
     if (/^https?:\/\//i.test(content)) {
       const res = await fetch(content);
       if (!res.ok)
-        throw new Error(`Failed to download input URL: ${res.status}`);
+        throw new Error(`Failed to download input URL (${res.status}): ${content}`);
       const cType = res.headers.get("content-type") || "";
       if (!detectedExt) {
         if (cType.includes("png")) detectedExt = "png";
@@ -378,7 +418,17 @@ async function uploadToDigen(content, options = {}) {
         bytes = Buffer.from(raw, "base64");
       }
     } else {
-      bytes = Buffer.from(content, "base64");
+      const trimmed = content.trim();
+      // Check if it's a local file path
+      const fs = await import("node:fs");
+      if (fs.existsSync(trimmed) && fs.statSync(trimmed).isFile()) {
+        console.log(`[uploadToDigen] Reading from local file path: ${trimmed}`);
+        bytes = fs.readFileSync(trimmed);
+      } else if (/^[A-Za-z0-9+/=]+$/.test(trimmed.replace(/\s+/g, ""))) {
+        bytes = Buffer.from(trimmed, "base64");
+      } else {
+        bytes = Buffer.from(content);
+      }
     }
   } else if (typeof content === "object" && content?.image_url) {
     return uploadToDigen(content.image_url, options);
@@ -390,9 +440,18 @@ async function uploadToDigen(content, options = {}) {
     throw new Error("Invalid content format for upload");
   }
 
-  let format = (detectedExt || "png").toLowerCase();
-  if (format === "avif") format = "png";
-  const mimeType = getMimeType(format);
+  console.log(`[uploadToDigen] Raw downloaded bytes length: ${bytes?.length || 0}`);
+
+  let format = "png";
+  const mimeType = "image/png";
+
+  try {
+    const sharp = (await import("sharp")).default;
+    bytes = await sharp(bytes).png().toBuffer();
+    console.log(`[uploadToDigen] Successfully converted to PNG, size: ${bytes.length} bytes`);
+  } catch (err) {
+    console.warn(`[uploadToDigen] convert to png failed (${err.message}), raw size: ${bytes?.length} bytes`);
+  }
 
   const token = await getDigenToken();
   const presignUrl = `https://api.digen.ai/v1/element/priv/presign?format=${format}`;
@@ -691,6 +750,9 @@ async function handle(request) {
     });
   }
   if (method === "tools/list") return jsonRpc(id, { tools });
+  if (method === "resources/list") return jsonRpc(id, { resources: [] });
+  if (method === "prompts/list") return jsonRpc(id, { prompts: [] });
+  if (method === "ping") return jsonRpc(id, {});
   if (method !== "tools/call")
     return error(id, -32601, `Method not found: ${method}`);
   const name = params.name;
@@ -735,6 +797,7 @@ async function handle(request) {
         response_format: "url",
         ...args,
       };
+      console.log(`body: ${JSON.stringify(body)}`);
       const accessToken =
         body.access_token;
       if (accessToken) {
@@ -808,6 +871,14 @@ async function handle(request) {
       isError: false,
     });
   } catch (e) {
+    if (name === "image.generate" || name === "image.generate.codex" || name === "video.generate" || name === "speech.generate") {
+      notifyMediaError({
+        type: name.split(".")[0],
+        model: args?.model || name,
+        error: e.message,
+        prompt: args?.prompt || args?.input,
+      }).catch(() => {});
+    }
     return jsonRpc(id, {
       content: [{ type: "text", text: e.message }],
       isError: true,

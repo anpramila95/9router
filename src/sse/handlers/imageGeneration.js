@@ -14,6 +14,7 @@ import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { saveRequestUsage } from "@/lib/usageDb.js";
 import { handleComboChat } from "open-sse/services/combo.js";
+import { notifyMediaError } from "@/lib/telegramNotifier.js";
 import * as log from "../utils/logger.js";
 
 // Providers that don't require credentials (noAuth)
@@ -123,12 +124,38 @@ async function handleSingleModelImage(body, modelStr, { wantsStream, binaryOutpu
       if (credentials?.allRateLimited) {
         const errorMsg = lastError || credentials.lastError || "Unavailable";
         const status = lastStatus || Number(credentials.lastErrorCode) || HTTP_STATUS.SERVICE_UNAVAILABLE;
+        notifyMediaError({
+          type: "image",
+          provider,
+          model,
+          status,
+          error: errorMsg,
+          prompt: body?.prompt,
+        }).catch(() => {});
         return unavailableResponse(status, `[${provider}/${model}] ${errorMsg}`, credentials.retryAfter, credentials.retryAfterHuman);
       }
       if (excludeConnectionIds.size === 0) {
+        notifyMediaError({
+          type: "image",
+          provider,
+          model,
+          status: HTTP_STATUS.BAD_REQUEST,
+          error: `No credentials for provider: ${provider}`,
+          prompt: body?.prompt,
+        }).catch(() => {});
         return errorResponse(HTTP_STATUS.BAD_REQUEST, `No credentials for provider: ${provider}`);
       }
-      return errorResponse(lastStatus || HTTP_STATUS.SERVICE_UNAVAILABLE, lastError || "All accounts unavailable");
+      const finalStatus = lastStatus || HTTP_STATUS.SERVICE_UNAVAILABLE;
+      const finalError = lastError || "All accounts unavailable";
+      notifyMediaError({
+        type: "image",
+        provider,
+        model,
+        status: finalStatus,
+        error: finalError,
+        prompt: body?.prompt,
+      }).catch(() => {});
+      return errorResponse(finalStatus, finalError);
     }
 
     const refreshedCredentials = await checkAndRefreshToken(provider, credentials);
@@ -174,6 +201,14 @@ async function handleSingleModelImage(body, modelStr, { wantsStream, binaryOutpu
       continue;
     }
 
+    notifyMediaError({
+      type: "image",
+      provider,
+      model,
+      status: result.status,
+      error: result.error,
+      prompt: body?.prompt,
+    }).catch(() => {});
     return result.response;
   }
 }
