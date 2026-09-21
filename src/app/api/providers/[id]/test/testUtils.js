@@ -824,8 +824,10 @@ case "llm7": {
         return { valid, error: valid ? null : `Health check failed (HTTP ${res.status})` };
       }
       case "gpt2api":
-      case "g2a": {
-        const rawBase = connection.providerSpecificData?.baseUrl || "https://gpt2api.binhdanhocai.com/v1";
+      case "g2a":
+      case "de2api":
+      case "de2": {
+        const rawBase = connection.providerSpecificData?.baseUrl || (connection.provider?.startsWith("de") ? "http://localhost:3000/v1" : "https://gpt2api.binhdanhocai.com/v1");
         let base = String(rawBase).replace(/\/+$/, "");
         if (base.endsWith("/audio/speech") || base.endsWith("/images/generations")) {
           base = base.replace(/\/(audio\/speech|images\/generations)$/, "");

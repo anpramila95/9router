@@ -261,8 +261,8 @@ export async function POST(request) {
         });
       }
 
-      if (provider === "gpt2api" || provider === "g2a") {
-        const rawBase = providerSpecificData?.baseUrl || AI_PROVIDERS[provider]?.ttsConfig?.baseUrl || "https://gpt2api.binhdanhocai.com/v1";
+      if (provider === "gpt2api" || provider === "g2a" || provider === "de2api" || provider === "de2") {
+        const rawBase = providerSpecificData?.baseUrl || AI_PROVIDERS[provider]?.ttsConfig?.baseUrl || "http://localhost:3000/v1";
         let base = String(rawBase).replace(/\/+$/, "");
         if (base.endsWith("/audio/speech") || base.endsWith("/images/generations")) {
           base = base.replace(/\/(audio\/speech|images\/generations)$/, "");

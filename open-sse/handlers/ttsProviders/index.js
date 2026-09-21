@@ -43,7 +43,7 @@ export async function synthesizeViaConfig(provider, text, model, credentials, re
   const { modelId, voiceId } = parseModelVoice(model, defaultModel, "", ttsModels);
   const rawUrl = credentials?.providerSpecificData?.baseUrl || credentials?.baseUrl || cfg.baseUrl;
   let resolvedBaseUrl = rawUrl;
-  if (rawUrl && (cfg.format === "gpt2api" || cfg.format === "openai")) {
+  if (rawUrl && (cfg.format === "gpt2api" || cfg.format === "de2api" || cfg.format === "openai")) {
     const base = String(rawUrl).replace(/\/+$/, "");
     if (base.endsWith("/v1/audio/speech") || base.endsWith("/audio/speech")) {
       resolvedBaseUrl = base;

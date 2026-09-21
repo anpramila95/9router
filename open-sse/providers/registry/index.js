@@ -123,6 +123,7 @@ import p120 from "./fish-audio.js";
 import p121 from "./alitp-intl.js";
 import p122 from "./gpt2api.js";
 import p123 from "./ai2w.js";
+import p124 from "./de2api.js";
 
 export default [
   p0,
@@ -247,4 +248,5 @@ export default [
   p121,
   p122,
   p123,
+  p124,
 ];

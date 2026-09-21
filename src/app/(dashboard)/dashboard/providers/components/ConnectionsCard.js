@@ -197,7 +197,7 @@ ConnectionRow.propTypes = {
 // ── AddApiKeyModal ─────────────────────────────────────────────
 function AddApiKeyModal({ isOpen, provider, providerName, proxyPools, onSave, onClose }) {
   const NONE = "__none__";
-  const hasBaseUrl = provider === "ai2w" || provider === "aivideoworkflow" || provider === "gpt2api" || provider === "selfhosted-tts" || provider === "selfhosted-stt" || provider === "selfhosted-embedding" || provider === "ollama-local";
+  const hasBaseUrl = provider === "ai2w" || provider === "aivideoworkflow" || provider === "gpt2api" || provider === "de2api" || provider === "selfhosted-tts" || provider === "selfhosted-stt" || provider === "selfhosted-embedding" || provider === "ollama-local";
   const [formData, setFormData] = useState({ name: "", apiKey: "", baseUrl: "", priority: 1, proxyPoolId: NONE });
   const [validating, setValidating] = useState(false);
   const [validationResult, setValidationResult] = useState(null);

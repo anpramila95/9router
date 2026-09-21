@@ -69,7 +69,7 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
     : false;
   const providerRegions = connection ? (AI_PROVIDERS?.[connection.provider]?.regions || null) : null;
 
-  const hasBaseUrl = connection?.provider === "ai2w" || connection?.provider === "aivideoworkflow" || connection?.provider === "gpt2api" || connection?.provider === "selfhosted-tts" || connection?.provider === "selfhosted-stt" || connection?.provider === "selfhosted-embedding" || connection?.provider === "ollama-local";
+  const hasBaseUrl = connection?.provider === "ai2w" || connection?.provider === "aivideoworkflow" || connection?.provider === "gpt2api" || connection?.provider === "de2api" || connection?.provider === "selfhosted-tts" || connection?.provider === "selfhosted-stt" || connection?.provider === "selfhosted-embedding" || connection?.provider === "ollama-local";
 
   // Build providerSpecificData for region-aware providers
   const buildRegionSpecificData = () => {

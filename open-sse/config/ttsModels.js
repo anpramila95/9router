@@ -152,6 +152,15 @@ export const TTS_MODELS_CONFIG = {
     },
     allVoices: GPT2API_VOICES,
   },
+  de2api: {
+    models: [
+      { id: "tts-hd", name: "TTS HD", type: "tts" },
+    ],
+    voices: {
+      "tts-hd": GPT2API_VOICES,
+    },
+    allVoices: GPT2API_VOICES,
+  },
 };
 
 // ── Helper: get voices for a specific model ────────────────────────────────

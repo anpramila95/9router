@@ -20,12 +20,14 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
 
   const isAzure = provider === "azure";
   const isCloudflareAi = provider === "cloudflare-ai";
+  const hasCustomBaseUrl = provider === "ai2w" || provider === "aivideoworkflow" || provider === "gpt2api" || provider === "de2api" || provider === "selfhosted-tts" || provider === "selfhosted-stt" || provider === "selfhosted-embedding";
   const providerRegions = AI_PROVIDERS?.[provider]?.regions || null;
   const defaultRegion = AI_PROVIDERS?.[provider]?.defaultRegion || providerRegions?.[0]?.id || "";
 
   const [formData, setFormData] = useState({
     name: "",
     apiKey: "",
+    baseUrl: "",
     defaultModel: "",
     priority: 1,
     proxyPoolId: NONE_PROXY_POOL_VALUE,
@@ -55,6 +57,9 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
   const buildProviderSpecificData = () => {
     if (isOllamaLocal && formData.ollamaHostUrl.trim()) {
       return { baseUrl: formData.ollamaHostUrl.trim() };
+    }
+    if (hasCustomBaseUrl && formData.baseUrl.trim()) {
+      return { baseUrl: formData.baseUrl.trim() };
     }
     if (isAzure) {
       return {
@@ -265,6 +270,14 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
               </Button>
             </div>
           </div>
+        )}
+        {hasCustomBaseUrl && (
+          <Input
+            label="Base URL / Endpoint"
+            value={formData.baseUrl}
+            onChange={(e) => setFormData({ ...formData, baseUrl: e.target.value })}
+            placeholder="http://localhost:3000"
+          />
         )}
         {isXaiApiKey && (
           <p className="text-xs text-text-muted">

@@ -198,6 +198,37 @@ async function gpt2api({ baseUrl, apiKey, text, modelId, voiceId, responseFormat
   return responseToBase64(res, fmt);
 }
 
+// DE2API TTS: POST /v1/audio/speech returning JSON { audio: "<base64>" } or binary
+// Accepts { prompt/input, voice, response_format }
+async function de2api({ baseUrl, apiKey, text, modelId, voiceId, responseFormat }) {
+  const headers = { "Content-Type": "application/json" };
+  if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+  const fmt = responseFormat && responseFormat !== "json" ? responseFormat : "mp3";
+  const res = await fetch(baseUrl, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      model: modelId || "tts-hd",
+      prompt: text,
+      input: text,
+      voice: voiceId || "fathom",
+      response_format: "b64",
+    }),
+  });
+  if (!res.ok) await throwUpstreamError(res);
+  const contentType = res.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    const data = await res.json();
+    if (data.audio) {
+      return { base64: data.audio, format: data.format || fmt };
+    }
+    if (data.data) {
+      return { base64: data.data, format: data.format || fmt };
+    }
+  }
+  return responseToBase64(res, fmt);
+}
+
 // format → handler dispatcher
 export const FORMAT_HANDLERS = {
   hyperbolic,
@@ -211,6 +242,7 @@ export const FORMAT_HANDLERS = {
   tortoise,
   openai: openaiCompat,
   gpt2api,
+  de2api,
   "minimax-tts": minimaxTts,
   "fish-audio": fishAudio,
 };
