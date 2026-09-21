@@ -12,7 +12,7 @@ const ai2wAdapter = {
   buildUrl: (model, creds) => {
     const base = resolveBase(creds, "ai2w");
     const m = (model || "").toLowerCase();
-    if (m === "grok") {
+    if (m === "grok" || m === "grok-image" || m.includes("grok")) {
       return `${base}/api/grok/generate-image`;
     }
     return `${base}/api/labs/generate-image`;
@@ -50,12 +50,15 @@ const ai2wAdapter = {
     }
 
     const m = (model || "").toLowerCase();
-    if (m === "grok") {
-      return {
+    if (m === "grok" || m === "grok-image" || m.includes("grok")) {
+      const grokPayload = {
         prompt: body.prompt,
         aspectRatio,
-        images,
       };
+      if (images.length) {
+        grokPayload.images = images;
+      }
+      return grokPayload;
     }
 
     return {
@@ -68,6 +71,30 @@ const ai2wAdapter = {
   },
   normalize: (responseBody, prompt) => {
     if (!responseBody) return { created: nowSec(), data: [] };
+
+    // Format 1: responseBody.images = ["http://...", ...] or [{ url: "..." }, ...]
+    if (Array.isArray(responseBody.images)) {
+      const data = responseBody.images.map((img) => {
+        const entry = { revised_prompt: prompt };
+        if (typeof img === "string") {
+          if (img.startsWith("data:") || !/^https?:\/\//i.test(img)) {
+            entry.b64_json = img.startsWith("data:") ? img.split(",")[1] : img;
+          } else {
+            entry.url = img;
+          }
+        } else if (typeof img === "object" && img) {
+          if (img.url) entry.url = img.url;
+          if (img.b64_json || img.base64) entry.b64_json = img.b64_json || img.base64;
+        }
+        return entry;
+      }).filter((d) => d.url || d.b64_json);
+
+      if (data.length) {
+        return { created: responseBody.created || nowSec(), data };
+      }
+    }
+
+    // Format 2: responseBody.media = [{ url, b64_json }]
     const media = Array.isArray(responseBody.media) ? responseBody.media : [];
     const data = media.map((item) => {
       const entry = { revised_prompt: prompt };

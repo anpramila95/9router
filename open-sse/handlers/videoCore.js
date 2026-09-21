@@ -70,13 +70,16 @@ function buildAi2wRequestBody(action, requestId, rawBody, model) {
     : parsed.image ? [parsed.image] : [];
 
   if (m === "grok" || m === "grok-video") {
-    return JSON.stringify({
+    const grokPayload = {
       prompt: parsed.prompt,
-      images,
       aspectRatio,
-      videoLength: parsed.videoLength || parsed.duration || 10,
+      videoLength: Number(parsed.videoLength || parsed.duration || 8),
       resolutionName: parsed.resolutionName || parsed.resolution || "720p",
-    });
+    };
+    if (images.length) {
+      grokPayload.images = images;
+    }
+    return JSON.stringify(grokPayload);
   }
 
   // veo3 / default labs video
@@ -240,15 +243,19 @@ export async function handleVideoProxyCore({
       const m = (model || "").toLowerCase();
       // Grok direct video
       if (m === "grok" || m === "grok-video" || data.videoUrl || data.videoBase64) {
+        let rawVideoUrl = data.videoUrl || data.videoDataUrl || "";
+        // If videoUrl is raw base64 (not starting with http or data:), format it into a data URI
+        if (rawVideoUrl && !rawVideoUrl.startsWith("http") && !rawVideoUrl.startsWith("data:")) {
+          rawVideoUrl = `data:video/mp4;base64,${rawVideoUrl}`;
+        }
         const normalized = {
           status: "done",
           video: {
-            url: data.videoUrl || data.videoDataUrl || "",
-            base64: data.videoBase64,
+            url: rawVideoUrl,
           },
-          videoUrl: data.videoUrl,
-          videoBase64: data.videoBase64,
-          videoDataUrl: data.videoDataUrl,
+          videoUrl: rawVideoUrl,
+          accountId: data.accountId,
+          accountName: data.accountName,
         };
         return {
           success: true,

@@ -60,6 +60,10 @@ const nextConfig = {
   async rewrites() {
     return [
       {
+        source: "/uploads/:path*",
+        destination: "/api/uploads/:path*"
+      },
+      {
         source: "/mcp",
         destination: "/api/mcp"
       },

@@ -85,3 +85,5 @@ graphify-out/*
 .codegraph/
 .PR/
 .next-analyze/*
+public/uploads/*
+!public/uploads/.gitkeep

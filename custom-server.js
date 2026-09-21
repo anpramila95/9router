@@ -58,6 +58,7 @@ process.env.NINEROUTER_PEER_TOKEN = PEER_TOKEN;
 
 let backgroundRefreshStarted = false;
 let comboHealthStarted = false;
+let uploadCleanupStarted = false;
 
 function resolveSrcPath(relPath) {
   const candidates = [
@@ -79,6 +80,19 @@ function startComboHealthFromCustomServer() {
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
   }).catch((e) => console.warn("[ComboHealth] startup failed:", e.message));
+}
+
+function startUploadCleanupFromCustomServer() {
+  if (uploadCleanupStarted) return;
+  uploadCleanupStarted = true;
+  const modPath = resolveSrcPath(path.join("lib", "uploadService.js"));
+  if (!modPath) return;
+  import(pathToFileURL(modPath).href).then((m) => {
+    m.startUploadCleanupScheduler();
+    const stop = () => m.stopUploadCleanupScheduler();
+    process.once("SIGINT", stop);
+    process.once("SIGTERM", stop);
+  }).catch((e) => console.warn("[UploadCleanup] startup failed:", e.message));
 }
 
 function startBackgroundTokenRefreshFromCustomServer() {
@@ -145,6 +159,7 @@ http.createServer = (...args) => {
     console.log(`[9Router] Server listening on http://${host}:${port}`);
     startBackgroundTokenRefreshFromCustomServer();
     startComboHealthFromCustomServer();
+    startUploadCleanupFromCustomServer();
   });
   const origEmit = server.emit;
   // JBR 25 sends h2c upgrades that the HTTP/1.1 server would otherwise close.
