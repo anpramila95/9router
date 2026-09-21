@@ -3,27 +3,21 @@ import path from "node:path";
 import crypto from "node:crypto";
 
 function resolvePublicUploadsDir() {
-  const candidates = [
-    path.join(process.cwd(), "public", "uploads"),
-    path.resolve("public/uploads"),
-  ];
-  for (const c of candidates) {
-    try {
-      if (!fs.existsSync(c)) {
-        fs.mkdirSync(c, { recursive: true });
-      }
-      return c;
-    } catch {}
-  }
-  return path.join(process.cwd(), "public", "uploads");
+  const c = path.join(/*turbopackIgnore: true*/ process.cwd(), "public", "uploads");
+  try {
+    if (!fs.existsSync(/*turbopackIgnore: true*/ c)) {
+      fs.mkdirSync(/*turbopackIgnore: true*/ c, { recursive: true });
+    }
+  } catch {}
+  return c;
 }
 
 export const UPLOADS_DIR = resolvePublicUploadsDir();
 
 // Ensure directory exists
 export function ensureUploadsDir() {
-  if (!fs.existsSync(UPLOADS_DIR)) {
-    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  if (!fs.existsSync(/*turbopackIgnore: true*/ UPLOADS_DIR)) {
+    fs.mkdirSync(/*turbopackIgnore: true*/ UPLOADS_DIR, { recursive: true });
   }
   return UPLOADS_DIR;
 }
@@ -146,10 +140,10 @@ export async function saveUploadedFile(content, options = {}, baseUrl = "") {
       }
     } else if (/^[a-zA-Z]:[\\/]|^[\\/]/.test(trimmed)) {
       // Local file path
-      if (!fs.existsSync(trimmed) || !fs.statSync(trimmed).isFile()) {
+      if (!fs.existsSync(/*turbopackIgnore: true*/ trimmed) || !fs.statSync(/*turbopackIgnore: true*/ trimmed).isFile()) {
         throw new Error(`Local file not found on server: ${trimmed}`);
       }
-      bytes = fs.readFileSync(trimmed);
+      bytes = fs.readFileSync(/*turbopackIgnore: true*/ trimmed);
       if (!detectedExt) {
         detectedExt = path.extname(trimmed).replace(".", "");
       }
@@ -187,9 +181,9 @@ export async function saveUploadedFile(content, options = {}, baseUrl = "") {
   ensureUploadsDir();
 
   const fileId = `${crypto.randomUUID()}.${ext}`;
-  const filePath = path.join(UPLOADS_DIR, fileId);
+  const filePath = path.join(/*turbopackIgnore: true*/ UPLOADS_DIR, fileId);
 
-  fs.writeFileSync(filePath, bytes);
+  fs.writeFileSync(/*turbopackIgnore: true*/ filePath, bytes);
 
   const cleanBaseUrl = String(baseUrl || "").replace(/\/+$/, "");
   const publicPath = `/uploads/${fileId}`;
@@ -202,22 +196,22 @@ export async function saveUploadedFile(content, options = {}, baseUrl = "") {
  * Delete files older than maxAgeMs (default: 30 minutes)
  */
 export function cleanupUploads(maxAgeMs = 30 * 60 * 1000) {
-  if (!fs.existsSync(UPLOADS_DIR)) return { deleted: 0, total: 0 };
+  if (!fs.existsSync(/*turbopackIgnore: true*/ UPLOADS_DIR)) return { deleted: 0, total: 0 };
 
   const now = Date.now();
   let deleted = 0;
   let total = 0;
 
   try {
-    const files = fs.readdirSync(UPLOADS_DIR);
+    const files = fs.readdirSync(/*turbopackIgnore: true*/ UPLOADS_DIR);
     total = files.length;
 
     for (const file of files) {
-      const filePath = path.join(UPLOADS_DIR, file);
+      const filePath = path.join(/*turbopackIgnore: true*/ UPLOADS_DIR, file);
       try {
-        const stats = fs.statSync(filePath);
+        const stats = fs.statSync(/*turbopackIgnore: true*/ filePath);
         if (stats.isFile() && now - stats.mtimeMs > maxAgeMs) {
-          fs.unlinkSync(filePath);
+          fs.unlinkSync(/*turbopackIgnore: true*/ filePath);
           deleted++;
         }
       } catch (err) {

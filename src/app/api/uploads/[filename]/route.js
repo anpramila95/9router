@@ -21,21 +21,21 @@ export async function GET(request, { params }) {
     return new NextResponse("Invalid filename", { status: 400 });
   }
 
-  const filePath = path.join(UPLOADS_DIR, filename);
+  const filePath = path.join(/*turbopackIgnore: true*/ UPLOADS_DIR, filename);
 
-  if (!fs.existsSync(filePath)) {
+  if (!fs.existsSync(/*turbopackIgnore: true*/ filePath)) {
     return new NextResponse("File not found or expired", { status: 404 });
   }
 
   try {
-    const stat = fs.statSync(filePath);
+    const stat = fs.statSync(/*turbopackIgnore: true*/ filePath);
     if (!stat.isFile()) {
       return new NextResponse("Not a file", { status: 400 });
     }
 
     const ext = path.extname(filename).replace(".", "");
     const mimeType = getMimeByExt(ext);
-    const fileBuffer = fs.readFileSync(filePath);
+    const fileBuffer = fs.readFileSync(/*turbopackIgnore: true*/ filePath);
 
     return new NextResponse(fileBuffer, {
       status: 200,
@@ -60,15 +60,15 @@ export async function HEAD(request, { params }) {
     return new NextResponse(null, { status: 400 });
   }
 
-  const filePath = path.join(UPLOADS_DIR, filename);
+  const filePath = path.join(/*turbopackIgnore: true*/ UPLOADS_DIR, filename);
 
-  if (!fs.existsSync(filePath)) {
+  if (!fs.existsSync(/*turbopackIgnore: true*/ filePath)) {
     return new NextResponse(null, { status: 404 });
   }
 
   const ext = path.extname(filename).replace(".", "");
   const mimeType = getMimeByExt(ext);
-  const stat = fs.statSync(filePath);
+  const stat = fs.statSync(/*turbopackIgnore: true*/ filePath);
 
   return new NextResponse(null, {
     status: 200,
