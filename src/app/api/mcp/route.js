@@ -132,7 +132,7 @@ const mediaTools = [
   {
     name: "video.generate",
     description:
-      "Generate video through Bình Dân Học AI. Default model: ai2w/veo3.\n" +
+      "Generate video through Bình Dân Học AI. Supported models: 'ai2w/veo3' (default), 'ai2w/grok'.\n" +
       "CRITICAL: 'images' ONLY accepts public HTTP/HTTPS URLs. DO NOT pass Base64 or local paths directly into video.generate. You MUST call 'image.upload.getUrl' first to upload your image and get the public URL, then pass that URL here.\n" +
       "WORKFLOW / POLLING: This is an async job. Calling this returns a job with 'pollingId' (or 'request_id'). You MUST poll 'video.status' passing id: pollingId until status is 'completed' (or 'succeeded') to get the final video URL.\n" +
       "Output example:\n" +
@@ -146,18 +146,29 @@ const mediaTools = [
       "Mode:\n" +
       "- 't2v': Text to video (requires prompt only)\n" +
       "- 'r2v': Reference/components to video (requires images: [{ image_url: 'https://...' }])\n" +
-      "- 'i2v': Image to video / start-end frames (requires images: [{ image_url: 'https://...' }])",
+      "- 'i2v': Image to video / start-end frames (requires images: [{ image_url: 'https://...' }])\n" +
+      "(Note: 'mode' is required for 'ai2w/veo3' but optional for 'ai2w/grok')",
     inputSchema: {
       type: "object",
       properties: {
-        model: { type: "string", default: "ai2w/veo3" },
+        model: {
+          type: "string",
+          default: "ai2w/veo3",
+          enum: ["ai2w/veo3", "ai2w/grok"],
+          description: "Video model to use: ai2w/veo3 (default) or ai2w/grok",
+        },
         prompt: { type: "string" },
-        mode: { type: "string", default: "t2v", enum: ["t2v", "r2v", "i2v"] },
+        mode: {
+          type: "string",
+          enum: ["t2v", "r2v", "i2v"],
+          description:
+            "Video mode: 't2v', 'r2v', 'i2v'. Required for 'ai2w/veo3', optional for 'ai2w/grok'.",
+        },
         aspectRatio: { type: "string", description: "For example 16:9" },
         videoLength: {
           type: "number",
-          default: 10,
-          description: "Video duration in seconds (8,10,15s)",
+          description:
+            "Video duration in seconds (8, 10, 15). ONLY used for model 'ai2w/grok', defaults to 10.",
         },
         resolutionName: {
           type: "string",
@@ -666,8 +677,19 @@ async function handle(request) {
         ...args,
       });
     } else if (name === "video.generate") {
-      const mode = args.mode || "t2v";
-      if (!["t2v", "r2v", "i2v"].includes(mode))
+      const {
+        image_url: _unused,
+        videoLength: customLength,
+        model: customModel,
+        mode: customMode,
+        ...cleanArgs
+      } = args;
+
+      const model = customModel || "ai2w/veo3";
+      const isGrok = model.includes("grok");
+
+      const mode = customMode || (isGrok ? undefined : "t2v");
+      if (mode && !["t2v", "r2v", "i2v"].includes(mode))
         return error(id, -32602, `Invalid video mode: ${mode}`);
 
       let rawImages = [];
@@ -696,16 +718,25 @@ async function handle(request) {
           `${mode} requires images in format: [{ image_url: 'https://...' }]`,
         );
 
-      const { image_url: _unused, videoLength: customLength, ...cleanArgs } = args;
-      const videoLength = customLength ?? 10;
-      result = await callApi(request, "/videos/generations", "POST", {
-        model: "ai2w/veo3",
-        mode,
+      const requestBody = {
+        model,
         resolutionName: "720p",
-        videoLength,
         ...cleanArgs,
-        images,
-      });
+      };
+
+      if (mode) {
+        requestBody.mode = mode;
+      }
+
+      if (isGrok) {
+        requestBody.videoLength = customLength ?? 10;
+      }
+
+      if (images.length > 0) {
+        requestBody.images = images;
+      }
+
+      result = await callApi(request, "/videos/generations", "POST", requestBody);
     } else if (name === "video.status")
       result = await callApi(
         request,
