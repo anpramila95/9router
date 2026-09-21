@@ -145,7 +145,7 @@ export const TTS_PROVIDER_CONFIG = {
     modelKey: "de2api-tts-models",
     voiceKey: "de2api-tts-voices",
     voicesPerModel: true,
-    defaultVoiceId: "fathom",
+    defaultVoiceId: "mira",
   },
   "de2": {
     hasLanguageDropdown: false,
@@ -155,7 +155,7 @@ export const TTS_PROVIDER_CONFIG = {
     modelKey: "de2api-tts-models",
     voiceKey: "de2api-tts-voices",
     voicesPerModel: true,
-    defaultVoiceId: "fathom",
+    defaultVoiceId: "mira",
   },
   "minimax-cn": {
     hasModelSelector: true,

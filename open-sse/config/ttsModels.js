@@ -61,6 +61,14 @@ const GPT2API_VOICES = [
   { id: "ember",   name: "Ember (ember)",    description: "Confident and optimistic" },
 ].map((v) => ({ type: "tts", ...v }));
 
+// DE2API voices
+const DE2API_VOICES = [
+  { id: "mira",   name: "Mira (Default)", description: "Default voice" },
+  { id: "echo",   name: "Echo",           description: "Echo voice" },
+  { id: "stella", name: "Stella",         description: "Stella voice" },
+  { id: "tide",   name: "Tide",           description: "Tide voice" },
+].map((v) => ({ type: "tts", ...v }));
+
 // ── TTS Config (config-driven, single source of truth) ─────────────────────
 export const TTS_MODELS_CONFIG = {
   openai: {
@@ -157,9 +165,9 @@ export const TTS_MODELS_CONFIG = {
       { id: "tts-hd", name: "TTS HD", type: "tts" },
     ],
     voices: {
-      "tts-hd": GPT2API_VOICES,
+      "tts-hd": DE2API_VOICES,
     },
-    allVoices: GPT2API_VOICES,
+    allVoices: DE2API_VOICES,
   },
 };
 

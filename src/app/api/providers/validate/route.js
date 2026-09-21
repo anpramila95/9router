@@ -264,20 +264,21 @@ export async function POST(request) {
       if (provider === "gpt2api" || provider === "g2a" || provider === "de2api" || provider === "de2") {
         const rawBase = providerSpecificData?.baseUrl || AI_PROVIDERS[provider]?.ttsConfig?.baseUrl || "http://localhost:3000/v1";
         let base = String(rawBase).replace(/\/+$/, "");
-        if (base.endsWith("/audio/speech") || base.endsWith("/images/generations")) {
-          base = base.replace(/\/(audio\/speech|images\/generations)$/, "");
+        if (base.endsWith("/audio/speech") || base.endsWith("/images/generations") || base.endsWith("/chat/completions")) {
+          base = base.replace(/\/(audio\/speech|images\/generations|chat\/completions)$/, "");
         }
         if (!base.endsWith("/v1")) {
           base = `${base}/v1`;
         }
+        const checkUrl = `${base}/models`;
         const headers = {};
         if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
-        const res = await fetch(base, {
+        const res = await fetch(checkUrl, {
           method: "GET",
           headers,
           signal: AbortSignal.timeout(8000),
         });
-        isValid = res.status === 200;
+        isValid = res.status === 200 || res.status === 400;
         return NextResponse.json({
           valid: isValid,
           error: isValid ? null : (res.status === 401 || res.status === 403 ? "Invalid API key" : `Validation failed (HTTP ${res.status})`),

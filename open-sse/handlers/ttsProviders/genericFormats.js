@@ -211,7 +211,7 @@ async function de2api({ baseUrl, apiKey, text, modelId, voiceId, responseFormat 
       model: modelId || "tts-hd",
       prompt: text,
       input: text,
-      voice: voiceId || "fathom",
+      voice: voiceId || "mira",
       response_format: "b64",
     }),
   });

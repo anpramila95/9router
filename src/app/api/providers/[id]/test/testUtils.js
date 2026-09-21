@@ -829,20 +829,21 @@ case "llm7": {
       case "de2": {
         const rawBase = connection.providerSpecificData?.baseUrl || (connection.provider?.startsWith("de") ? "http://localhost:3000/v1" : "https://gpt2api.binhdanhocai.com/v1");
         let base = String(rawBase).replace(/\/+$/, "");
-        if (base.endsWith("/audio/speech") || base.endsWith("/images/generations")) {
-          base = base.replace(/\/(audio\/speech|images\/generations)$/, "");
+        if (base.endsWith("/audio/speech") || base.endsWith("/images/generations") || base.endsWith("/chat/completions")) {
+          base = base.replace(/\/(audio\/speech|images\/generations|chat\/completions)$/, "");
         }
         if (!base.endsWith("/v1")) {
           base = `${base}/v1`;
         }
+        const checkUrl = `${base}/models`;
         const headers = {};
         if (connection.apiKey) headers["Authorization"] = `Bearer ${connection.apiKey}`;
-        const res = await fetchWithConnectionProxy(base, {
+        const res = await fetchWithConnectionProxy(checkUrl, {
           method: "GET",
           headers,
           signal: AbortSignal.timeout(8000),
         }, effectiveProxy);
-        const valid = res.status === 200;
+        const valid = res.status === 200 || res.status === 400;
         return { valid, error: valid ? null : `Validation failed (HTTP ${res.status})` };
       }
       default:

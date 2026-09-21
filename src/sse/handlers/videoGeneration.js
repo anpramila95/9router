@@ -218,9 +218,13 @@ export async function handleVideoCreate(request, action) {
     }
 
     // Record the failure (dashboard shows lastError/errorCode → user sees re-auth is needed)
-    const { shouldFallback } = await markAccountUnavailable(
-      credentials.connectionId, result.status, sanitizeSecrets(result.error, refreshedCredentials), provider, model
-    );
+    // For ai2w/aivideoworkflow: do not lock account on 500 upstream errors (e.g. Google Labs transient prompt errors)
+    let shouldFallback = false;
+    if (provider !== "ai2w" && provider !== "aivideoworkflow") {
+      ({ shouldFallback } = await markAccountUnavailable(
+        credentials.connectionId, result.status, sanitizeSecrets(result.error, refreshedCredentials), provider, model
+      ));
+    }
 
     if (shouldFallback && CREATE_ROTATION_STATUSES.has(result.status)) {
       excludeConnectionIds.add(credentials.connectionId);
