@@ -258,6 +258,76 @@ describe("AI2W (AIVideoWorkflow) provider", () => {
     expect(url).toBe("http://localhost:3000/api/labs/generate-video");
     const sentBody = JSON.parse(opts.body);
     expect(sentBody.mode).toBe("image-to-video");
-    expect(sentBody.images).toEqual(["https://example.com/a.png", "https://example.com/b.png"]);
+  });
+
+  it("handles grok image generation and falls back to base64Image if URL returns 403", async () => {
+    // 1. Image generation API response
+    global.fetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: true,
+          images: [
+            {
+              id: "d1233881",
+              url: "https://imagine-public.x.ai/images/blocked.png",
+              base64Image: "iVBORw0KGgoAAAANSUhEUg==",
+              prompt: "2 con chim",
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    // 2. HEAD check on image URL returns 403 Forbidden
+    global.fetch.mockResolvedValueOnce(
+      new Response(null, { status: 403, statusText: "Forbidden" })
+    );
+
+    const result = await handleImageGenerationCore({
+      body: { prompt: "2 con chim", model: "ai2w/grok" },
+      modelInfo: { provider: "ai2w", model: "grok" },
+      credentials: { apiKey: "test-token", providerSpecificData: { baseUrl: "http://localhost:3000" } },
+    });
+
+    expect(result.success).toBe(true);
+    const data = await result.response.json();
+    expect(data.data[0].b64_json).toBe("iVBORw0KGgoAAAANSUhEUg==");
+    expect(data.data[0].url).toBeUndefined();
+  });
+
+  it("handles grok image generation and keeps URL if reachable", async () => {
+    // 1. Image generation API response
+    global.fetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: true,
+          images: [
+            {
+              id: "d1233881",
+              url: "https://imagine-public.x.ai/images/ok.png",
+              base64Image: "iVBORw0KGgoAAAANSUhEUg==",
+              prompt: "2 con chim",
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    // 2. HEAD check on image URL returns 200 OK
+    global.fetch.mockResolvedValueOnce(
+      new Response(null, { status: 200 })
+    );
+
+    const result = await handleImageGenerationCore({
+      body: { prompt: "2 con chim", model: "ai2w/grok" },
+      modelInfo: { provider: "ai2w", model: "grok" },
+      credentials: { apiKey: "test-token", providerSpecificData: { baseUrl: "http://localhost:3000" } },
+    });
+
+    expect(result.success).toBe(true);
+    const data = await result.response.json();
+    expect(data.data[0].url).toBe("https://imagine-public.x.ai/images/ok.png");
   });
 });

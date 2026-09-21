@@ -189,7 +189,7 @@ export async function handleImageGenerationCore({
   if (onRequestSuccess) await onRequestSuccess();
 
   // Normalize → OpenAI-compatible shape
-  const normalized = adapter.normalize(parsed, body.prompt);
+  const normalized = await adapter.normalize(parsed, body.prompt);
 
   // Already in OpenAI shape? skip re-normalize
   const finalBody = (normalized.created && Array.isArray(normalized.data)) ? normalized : parsed;

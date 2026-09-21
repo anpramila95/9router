@@ -69,43 +69,103 @@ const ai2wAdapter = {
       threads: body.threads || body.n || 1,
     };
   },
-  normalize: (responseBody, prompt) => {
+  normalize: async (responseBody, prompt) => {
     if (!responseBody) return { created: nowSec(), data: [] };
 
-    // Format 1: responseBody.images = ["http://...", ...] or [{ url: "..." }, ...]
+    // Format 1: responseBody.images = ["http://...", ...] or [{ url: "...", base64Image: "..." }, ...]
     if (Array.isArray(responseBody.images)) {
-      const data = responseBody.images.map((img) => {
-        const entry = { revised_prompt: prompt };
-        if (typeof img === "string") {
-          if (img.startsWith("data:") || !/^https?:\/\//i.test(img)) {
-            entry.b64_json = img.startsWith("data:") ? img.split(",")[1] : img;
-          } else {
-            entry.url = img;
-          }
-        } else if (typeof img === "object" && img) {
-          if (img.url) entry.url = img.url;
-          if (img.b64_json || img.base64) entry.b64_json = img.b64_json || img.base64;
-        }
-        return entry;
-      }).filter((d) => d.url || d.b64_json);
+      const data = await Promise.all(
+        responseBody.images.map(async (img) => {
+          const entry = { revised_prompt: prompt };
+          if (typeof img === "string") {
+            if (img.startsWith("data:") || !/^https?:\/\//i.test(img)) {
+              entry.b64_json = img.startsWith("data:") ? img.split(",")[1] : img;
+            } else {
+              entry.url = img;
+            }
+          } else if (typeof img === "object" && img) {
+            const rawBase64 = img.base64Image || img.b64_json || img.base64;
+            const targetUrl = img.url;
 
-      if (data.length) {
-        return { created: responseBody.created || nowSec(), data };
+            if (targetUrl) {
+              let urlOk = false;
+              try {
+                const headRes = await fetch(targetUrl, {
+                  method: "HEAD",
+                  signal: AbortSignal.timeout(3000),
+                });
+                urlOk = headRes.ok;
+              } catch {
+                urlOk = false;
+              }
+
+              if (urlOk) {
+                entry.url = targetUrl;
+              } else if (rawBase64) {
+                entry.b64_json = rawBase64.startsWith("data:")
+                  ? rawBase64.split(",")[1]
+                  : rawBase64;
+              } else {
+                entry.url = targetUrl;
+              }
+            } else if (rawBase64) {
+              entry.b64_json = rawBase64.startsWith("data:")
+                ? rawBase64.split(",")[1]
+                : rawBase64;
+            }
+          }
+          return entry;
+        })
+      );
+
+      const filtered = data.filter((d) => d.url || d.b64_json);
+      if (filtered.length) {
+        return { created: responseBody.created || nowSec(), data: filtered };
       }
     }
 
-    // Format 2: responseBody.media = [{ url, b64_json }]
+    // Format 2: responseBody.media = [{ url, b64_json, base64Image }]
     const media = Array.isArray(responseBody.media) ? responseBody.media : [];
-    const data = media.map((item) => {
-      const entry = { revised_prompt: prompt };
-      if (item.url) entry.url = item.url;
-      if (item.b64_json || item.base64) entry.b64_json = item.b64_json || item.base64;
-      return entry;
-    }).filter((d) => d.url || d.b64_json);
+    const data = await Promise.all(
+      media.map(async (item) => {
+        const entry = { revised_prompt: prompt };
+        const rawBase64 = item.base64Image || item.b64_json || item.base64;
+        const targetUrl = item.url;
+
+        if (targetUrl) {
+          let urlOk = false;
+          try {
+            const headRes = await fetch(targetUrl, {
+              method: "HEAD",
+              signal: AbortSignal.timeout(3000),
+            });
+            urlOk = headRes.ok;
+          } catch {
+            urlOk = false;
+          }
+
+          if (urlOk) {
+            entry.url = targetUrl;
+          } else if (rawBase64) {
+            entry.b64_json = rawBase64.startsWith("data:")
+              ? rawBase64.split(",")[1]
+              : rawBase64;
+          } else {
+            entry.url = targetUrl;
+          }
+        } else if (rawBase64) {
+          entry.b64_json = rawBase64.startsWith("data:")
+            ? rawBase64.split(",")[1]
+            : rawBase64;
+        }
+        return entry;
+      })
+    );
+    const filtered = data.filter((d) => d.url || d.b64_json);
 
     return {
       created: responseBody.created || nowSec(),
-      data: data.length ? data : (responseBody.data || []),
+      data: filtered.length ? filtered : (responseBody.data || []),
     };
   },
 };
