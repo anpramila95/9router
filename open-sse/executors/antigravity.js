@@ -67,22 +67,49 @@ function isImageModel(model) {
   return IMAGE_MODEL_PATTERNS.some(p => p.test(model));
 }
 
-// Parse aspect ratio / resolution from model name suffixes
+// Parse aspect ratio / resolution from model name suffixes or request body
 // e.g. "gemini-3.1-flash-image-16x9" -> { aspectRatio: "16:9" }
-// e.g. "gemini-3.1-flash-image-1024x768" -> { aspectRatio: "4:3" }
-function parseImageConfig(model) {
+// e.g. "gemini-3.1-flash-image-1024x768" or size: "1920x1080" -> { aspectRatio: "16:9" }
+function parseImageConfig(model, body = null) {
   const config = { aspectRatio: "1:1" };
-  const resMatch = model.match(/(\d+)x(\d+)$/);
+  const rawSize =
+    body?.aspectRatio ||
+    body?.aspect_ratio ||
+    body?.size ||
+    body?.generationConfig?.imageConfig?.aspectRatio ||
+    body?.request?.generationConfig?.imageConfig?.aspectRatio ||
+    "";
+  const source = rawSize && rawSize !== "auto" ? String(rawSize) : model;
+
+  const resMatch = String(source).match(/(\d+)[:x](\d+)$/);
   if (resMatch) {
-    const w = parseInt(resMatch[1]);
-    const h = parseInt(resMatch[2]);
-    if (w <= 16 && h <= 16) {
-      config.aspectRatio = `${w}:${h}`;
-    } else {
-      // Resolution like 1024x768 — derive aspect ratio
-      const gcd = (a, b) => b ? gcd(b, a % b) : a;
-      const d = gcd(w, h);
-      config.aspectRatio = `${w/d}:${h/d}`;
+    const w = parseInt(resMatch[1], 10);
+    const h = parseInt(resMatch[2], 10);
+    if (w > 0 && h > 0) {
+      if (w <= 16 && h <= 16) {
+        config.aspectRatio = `${w}:${h}`;
+      } else {
+        // Resolution like 1920x1080 or 1024x768 — derive standard aspect ratio
+        const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+        const d = gcd(w, h);
+        const nw = w / d;
+        const nh = h / d;
+        if (nw <= 16 && nh <= 16) {
+          config.aspectRatio = `${nw}:${nh}`;
+        } else if (Math.abs(w / h - 16 / 9) < 0.05) {
+          config.aspectRatio = "16:9";
+        } else if (Math.abs(w / h - 9 / 16) < 0.05) {
+          config.aspectRatio = "9:16";
+        } else if (Math.abs(w / h - 4 / 3) < 0.05) {
+          config.aspectRatio = "4:3";
+        } else if (Math.abs(w / h - 3 / 4) < 0.05) {
+          config.aspectRatio = "3:4";
+        } else if (w === h) {
+          config.aspectRatio = "1:1";
+        } else {
+          config.aspectRatio = `${nw}:${nh}`;
+        }
+      }
     }
   }
   return config;
@@ -142,17 +169,19 @@ export class AntigravityExecutor extends BaseExecutor {
 
     // ─── Image generation: completely different request structure ───
     if (isImageModel(model)) {
-      const imageConfig = parseImageConfig(model);
+      const imageConfig = parseImageConfig(model, body);
       // Strip model name suffixes for the actual API model name
-      const cleanModel = model.replace(/-(\d+)x(\d+)$/, "");
+      const cleanModel = model.replace(/[-_](\d+)[:x](\d+)$/, "");
 
-      // Build simplified contents — text-only, merge all user messages
+      // Build simplified contents — preserve text and inlineData
       const contents = [];
       const srcContents = body.request?.contents || body.contents || [];
       for (const c of srcContents) {
-        const textParts = (c.parts || []).filter(p => p.text !== undefined).map(p => ({ text: p.text }));
-        if (textParts.length > 0) {
-          contents.push({ role: c.role || "user", parts: textParts });
+        const filteredParts = (c.parts || []).filter(
+          (p) => p.text !== undefined || p.inlineData !== undefined
+        );
+        if (filteredParts.length > 0) {
+          contents.push({ role: c.role || "user", parts: filteredParts });
         }
       }
 

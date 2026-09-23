@@ -41,6 +41,8 @@ export default {
 
     const chatBody = {
       contents: [{ role: "user", parts }],
+      size: body.size,
+      aspectRatio: body.aspectRatio || body.aspect_ratio,
     };
 
     const result = await executor.execute({

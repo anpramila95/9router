@@ -5,7 +5,8 @@ import { PROVIDER_MEDIA } from "../providers/index.js";
 
 // Upstream fetch deadline for video job submission/polling (the job itself is
 // async upstream — this only bounds the HTTP round-trip, not video rendering).
-const VIDEO_FETCH_TIMEOUT_MS = Number(process.env.VIDEO_FETCH_TIMEOUT_MS || 120000);
+// Grok video renders synchronously over the socket, taking up to 4-5 minutes.
+const VIDEO_FETCH_TIMEOUT_MS = Number(process.env.VIDEO_FETCH_TIMEOUT_MS || 360000);
 
 // POST /videos/* creates a billable upstream job. A network error after the
 // request left the socket may still have created the job, so creation is NEVER
@@ -88,7 +89,7 @@ function buildAi2wRequestBody(action, requestId, rawBody, model) {
     aspectRatio,
     mode: parsed.mode || (images.length ? "image-to-video" : "text-to-video"),
     images,
-    model: "veo-3.1-lite-relax-ultra",
+    model: "veo-3.1-lite",
   });
 }
 
