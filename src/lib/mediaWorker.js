@@ -39,20 +39,50 @@ function uploadBaseUrl(baseUrl) {
   }
 }
 
-async function uploadInlineMedia(value, baseUrl, format, allowRawBase64 = false, uploaded = new Map()) {
+async function uploadInlineMedia(
+  value,
+  baseUrl,
+  format,
+  allowRawBase64 = false,
+  uploaded = new Map(),
+) {
   if (typeof value !== "string") return value;
   const trimmed = value.trim();
-  if (!/^data:[^;]+;base64,/i.test(trimmed) && !(allowRawBase64 && /^[A-Za-z0-9+/=\s]+$/.test(trimmed))) return value;
+  if (
+    !/^data:[^;]+;base64,/i.test(trimmed) &&
+    !(allowRawBase64 && /^[A-Za-z0-9+/=\s]+$/.test(trimmed))
+  )
+    return value;
   if (uploaded.has(trimmed)) return uploaded.get(trimmed);
   const digenUrl = await uploadMediaToDigen(trimmed, format).catch(() => null);
-  const result = digenUrl || await saveUploadedFile(trimmed, { format }, uploadBaseUrl(baseUrl));
+  const result =
+    digenUrl ||
+    (await saveUploadedFile(trimmed, { format }, uploadBaseUrl(baseUrl)));
   uploaded.set(trimmed, result);
   return result;
 }
 
-async function uploadInlineMediaTree(value, baseUrl, format, key = "", uploaded = new Map()) {
-  if (typeof value === "string") return uploadInlineMedia(value, baseUrl, format, /(?:b64_json|base64|videoData|videoBase64)$/i.test(key), uploaded);
-  if (Array.isArray(value)) return Promise.all(value.map((item) => uploadInlineMediaTree(item, baseUrl, format, "", uploaded)));
+async function uploadInlineMediaTree(
+  value,
+  baseUrl,
+  format,
+  key = "",
+  uploaded = new Map(),
+) {
+  if (typeof value === "string")
+    return uploadInlineMedia(
+      value,
+      baseUrl,
+      format,
+      /(?:b64_json|base64|videoData|videoBase64)$/i.test(key),
+      uploaded,
+    );
+  if (Array.isArray(value))
+    return Promise.all(
+      value.map((item) =>
+        uploadInlineMediaTree(item, baseUrl, format, "", uploaded),
+      ),
+    );
   if (!value || typeof value !== "object") return value;
   const entries = await Promise.all(
     Object.entries(value).map(async ([key, item]) => [
@@ -399,8 +429,7 @@ export async function executeApiCall(
   };
   const url = new URL(`/api/v1${path}`, baseUrl).toString();
   const timeoutMs =
-    customTimeout ||
-    (path.startsWith("/videos") ? 360 * 1000 : 120 * 1000);
+    customTimeout || (path.startsWith("/videos") ? 360 * 1000 : 120 * 1000);
 
   try {
     const response = await axios({
@@ -583,7 +612,11 @@ async function processGptImage2Task(job) {
         }
 
         finalData = await uploadInlineMediaTree(finalData, baseUrl, "png");
-        const uploadedResult = await uploadInlineMediaTree(item, baseUrl, "png");
+        const uploadedResult = await uploadInlineMediaTree(
+          item,
+          baseUrl,
+          "png",
+        );
         await updateJob(job.id, {
           status: "completed",
           data: finalData,
@@ -678,8 +711,20 @@ async function processImageJob(job) {
   }
 
   const uploaded = new Map();
-  const uploadedData = await uploadInlineMediaTree(finalData, baseUrl, "png", "", uploaded);
-  const uploadedResult = await uploadInlineMediaTree(result, baseUrl, "png", "", uploaded);
+  const uploadedData = await uploadInlineMediaTree(
+    finalData,
+    baseUrl,
+    "png",
+    "",
+    uploaded,
+  );
+  const uploadedResult = await uploadInlineMediaTree(
+    result,
+    baseUrl,
+    "png",
+    "",
+    uploaded,
+  );
   await updateJob(job.id, {
     status: "completed",
     result: uploadedResult,
@@ -698,9 +743,10 @@ async function processVideoJob(job) {
   );
 
   // Grok may return its completed payload directly or under `data`.
-  const videoResult = createRes?.data && typeof createRes.data === "object"
-    ? createRes.data
-    : createRes;
+  const videoResult =
+    createRes?.data && typeof createRes.data === "object"
+      ? createRes.data
+      : createRes;
   const directVideoUrl =
     videoResult?.video_url ||
     videoResult?.videoBase64 ||
@@ -709,7 +755,9 @@ async function processVideoJob(job) {
     videoResult?.video?.url ||
     (typeof videoResult?.video === "string" ? videoResult.video : null) ||
     (videoResult?.status === "done" &&
-      (videoResult?.video?.url || videoResult?.videoUrl || videoResult?.video)) ||
+      (videoResult?.video?.url ||
+        videoResult?.videoUrl ||
+        videoResult?.video)) ||
     videoResult?.url;
 
   if (directVideoUrl) {
@@ -719,8 +767,20 @@ async function processVideoJob(job) {
       `[MediaWorker] Video job ${job.id} (Grok) completed immediately with URL: ${finalUrl.slice(0, 100)}`,
     );
     const uploaded = new Map();
-    const uploadedUrl = await uploadInlineMedia(finalUrl, baseUrl, "mp4", true, uploaded);
-    const uploadedResult = await uploadInlineMediaTree(createRes, baseUrl, "mp4", "", uploaded);
+    const uploadedUrl = await uploadInlineMedia(
+      finalUrl,
+      baseUrl,
+      "mp4",
+      true,
+      uploaded,
+    );
+    const uploadedResult = await uploadInlineMediaTree(
+      createRes,
+      baseUrl,
+      "mp4",
+      "",
+      uploaded,
+    );
     await updateJob(job.id, {
       status: "completed",
       video_url: uploadedUrl,
@@ -761,8 +821,20 @@ async function processVideoJob(job) {
         const videoUrl =
           pollRes?.video?.url || pollRes?.videoUrl || pollRes?.url;
         const uploaded = new Map();
-        const uploadedUrl = await uploadInlineMedia(videoUrl, baseUrl, "mp4", true, uploaded);
-        const uploadedResult = await uploadInlineMediaTree(pollRes, baseUrl, "mp4", "", uploaded);
+        const uploadedUrl = await uploadInlineMedia(
+          videoUrl,
+          baseUrl,
+          "mp4",
+          true,
+          uploaded,
+        );
+        const uploadedResult = await uploadInlineMediaTree(
+          pollRes,
+          baseUrl,
+          "mp4",
+          "",
+          uploaded,
+        );
         await updateJob(job.id, {
           status: "completed",
           video_url: uploadedUrl,
