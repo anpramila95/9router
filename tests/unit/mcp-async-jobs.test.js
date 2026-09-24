@@ -11,6 +11,15 @@ describe("MCP Media Async Jobs with Background Worker", () => {
   afterAll(async () => {
     await waitForActiveWorkers(1000);
   });
+  it("reads completed status from DB instead of stale memory cache", async () => {
+    const id = `cache-status-${Date.now()}`;
+    await updateJob(id, { type: "video", status: "pending" });
+    await updateJob(id, { status: "completed", video_url: "/uploads/video.mp4" });
+    const job = await getJob(id);
+    expect(job.status).toBe("completed");
+    expect(job.video_url).toBe("/uploads/video.mp4");
+  });
+
   it("registers unified media.status tool and removes separate video.status/image.status", () => {
     const names = mediaTools.map((t) => t.name);
     expect(names).toContain("image.generate");

@@ -3,6 +3,7 @@ import axios from "axios";
 import { makeKv } from "@/lib/db/helpers/kvStore.js";
 import { notifyMediaError } from "@/lib/telegramNotifier.js";
 import { saveUploadedFile } from "@/lib/uploadService.js";
+import { uploadMediaToDigen } from "@/lib/digenUpload.js";
 
 const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379";
 const QUEUE_KEY = "mcp:media:jobs:queue";
@@ -38,19 +39,25 @@ function uploadBaseUrl(baseUrl) {
   }
 }
 
-async function uploadInlineMedia(value, baseUrl, format) {
-  if (typeof value !== "string" || !/^data:[^;]+;base64,/i.test(value.trim())) return value;
-  return saveUploadedFile(value, { format }, uploadBaseUrl(baseUrl));
+async function uploadInlineMedia(value, baseUrl, format, allowRawBase64 = false, uploaded = new Map()) {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (!/^data:[^;]+;base64,/i.test(trimmed) && !(allowRawBase64 && /^[A-Za-z0-9+/=\s]+$/.test(trimmed))) return value;
+  if (uploaded.has(trimmed)) return uploaded.get(trimmed);
+  const digenUrl = await uploadMediaToDigen(trimmed, format).catch(() => null);
+  const result = digenUrl || await saveUploadedFile(trimmed, { format }, uploadBaseUrl(baseUrl));
+  uploaded.set(trimmed, result);
+  return result;
 }
 
-async function uploadInlineMediaTree(value, baseUrl, format) {
-  if (typeof value === "string") return uploadInlineMedia(value, baseUrl, format);
-  if (Array.isArray(value)) return Promise.all(value.map((item) => uploadInlineMediaTree(item, baseUrl, format)));
+async function uploadInlineMediaTree(value, baseUrl, format, key = "", uploaded = new Map()) {
+  if (typeof value === "string") return uploadInlineMedia(value, baseUrl, format, /(?:b64_json|base64|videoData|videoBase64)$/i.test(key), uploaded);
+  if (Array.isArray(value)) return Promise.all(value.map((item) => uploadInlineMediaTree(item, baseUrl, format, "", uploaded)));
   if (!value || typeof value !== "object") return value;
   const entries = await Promise.all(
     Object.entries(value).map(async ([key, item]) => [
       key,
-      await uploadInlineMediaTree(item, baseUrl, format),
+      await uploadInlineMediaTree(item, baseUrl, format, key, uploaded),
     ]),
   );
   return Object.fromEntries(entries);
@@ -112,7 +119,16 @@ getRedisClient();
 
 export async function getJob(id) {
   if (!id) return null;
-  if (memoryCache.has(id)) return memoryCache.get(id);
+
+  // DB is authoritative across Next/MCP and worker processes. Memory cache can
+  // otherwise keep a stale pending record after another process completes it.
+  try {
+    const fromKv = await mcpJobsKv.get(id);
+    if (fromKv) {
+      memoryCache.set(id, fromKv);
+      return fromKv;
+    }
+  } catch {}
 
   if (isRedisReady && redisClient) {
     try {
@@ -125,14 +141,7 @@ export async function getJob(id) {
     } catch {}
   }
 
-  try {
-    const fromKv = await mcpJobsKv.get(id);
-    if (fromKv) {
-      memoryCache.set(id, fromKv);
-      return fromKv;
-    }
-  } catch {}
-  return null;
+  return memoryCache.get(id) || null;
 }
 
 export async function updateJob(id, updates) {
@@ -668,8 +677,9 @@ async function processImageJob(job) {
     finalData = [finalData[finalData.length - 1]];
   }
 
-  const uploadedData = await uploadInlineMediaTree(finalData, baseUrl, "png");
-  const uploadedResult = await uploadInlineMediaTree(result, baseUrl, "png");
+  const uploaded = new Map();
+  const uploadedData = await uploadInlineMediaTree(finalData, baseUrl, "png", "", uploaded);
+  const uploadedResult = await uploadInlineMediaTree(result, baseUrl, "png", "", uploaded);
   await updateJob(job.id, {
     status: "completed",
     result: uploadedResult,
@@ -693,6 +703,8 @@ async function processVideoJob(job) {
     : createRes;
   const directVideoUrl =
     videoResult?.video_url ||
+    videoResult?.videoBase64 ||
+    videoResult?.videoDataUrl ||
     videoResult?.videoUrl ||
     videoResult?.video?.url ||
     (typeof videoResult?.video === "string" ? videoResult.video : null) ||
@@ -706,8 +718,9 @@ async function processVideoJob(job) {
     console.log(
       `[MediaWorker] Video job ${job.id} (Grok) completed immediately with URL: ${finalUrl.slice(0, 100)}`,
     );
-    const uploadedUrl = await uploadInlineMedia(finalUrl, baseUrl, "mp4");
-    const uploadedResult = await uploadInlineMediaTree(createRes, baseUrl, "mp4");
+    const uploaded = new Map();
+    const uploadedUrl = await uploadInlineMedia(finalUrl, baseUrl, "mp4", true, uploaded);
+    const uploadedResult = await uploadInlineMediaTree(createRes, baseUrl, "mp4", "", uploaded);
     await updateJob(job.id, {
       status: "completed",
       video_url: uploadedUrl,
@@ -747,8 +760,9 @@ async function processVideoJob(job) {
       ) {
         const videoUrl =
           pollRes?.video?.url || pollRes?.videoUrl || pollRes?.url;
-        const uploadedUrl = await uploadInlineMedia(videoUrl, baseUrl, "mp4");
-        const uploadedResult = await uploadInlineMediaTree(pollRes, baseUrl, "mp4");
+        const uploaded = new Map();
+        const uploadedUrl = await uploadInlineMedia(videoUrl, baseUrl, "mp4", true, uploaded);
+        const uploadedResult = await uploadInlineMediaTree(pollRes, baseUrl, "mp4", "", uploaded);
         await updateJob(job.id, {
           status: "completed",
           video_url: uploadedUrl,
