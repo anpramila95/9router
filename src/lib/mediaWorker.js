@@ -150,16 +150,8 @@ getRedisClient();
 export async function getJob(id) {
   if (!id) return null;
 
-  // DB is authoritative across Next/MCP and worker processes. Memory cache can
-  // otherwise keep a stale pending record after another process completes it.
-  try {
-    const fromKv = await mcpJobsKv.get(id);
-    if (fromKv) {
-      memoryCache.set(id, fromKv);
-      return fromKv;
-    }
-  } catch {}
-
+  // Redis is shared across worker/API processes and receives every update.
+  // Prefer it over sql.js snapshots, which can be stale in another process.
   if (isRedisReady && redisClient) {
     try {
       const raw = await redisClient.get(`${JOB_PREFIX}${id}`);
@@ -170,6 +162,14 @@ export async function getJob(id) {
       }
     } catch {}
   }
+
+  try {
+    const fromKv = await mcpJobsKv.get(id);
+    if (fromKv) {
+      memoryCache.set(id, fromKv);
+      return fromKv;
+    }
+  } catch {}
 
   return memoryCache.get(id) || null;
 }
@@ -194,10 +194,17 @@ export async function updateJob(id, updates) {
         "EX",
         86400 * 3,
       );
-    } catch {}
+    } catch (error) {
+      console.warn(`[MediaWorker] Redis save failed for job ${id}: ${error.message}`);
+    }
   }
 
-  await mcpJobsKv.set(id, updated);
+  try {
+    await mcpJobsKv.set(id, updated);
+  } catch (error) {
+    console.warn(`[MediaWorker] DB save failed for job ${id}: ${error.message}`);
+    if (!isRedisReady) throw error;
+  }
   return updated;
 }
 
@@ -496,7 +503,7 @@ async function callCodexImage(body) {
 }
 
 async function processGptImage2Task(job) {
-  const { token = "", body = {} } = job.payload || {};
+  const { baseUrl = "", token = "", body = {} } = job.payload || {};
   const clientTaskId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}-0`;
 
   let images = [];
@@ -516,11 +523,16 @@ async function processGptImage2Task(job) {
     images = [{ image_url: String(body.image).trim() }];
   }
 
+  const aspectRatio = body.aspectRatio || "1:1";
+
+  //map to size 1:1 -> 1024x1024, 16:9 -> 1920x1080, 9:16 -> 1080x1920, 4:3 -> 1024x768, 3:4 -> 768x1024
+  const size = aspectRatio == "1:1" ? "1024x1024" : aspectRatio == "16:9" ? "1920x1080" : aspectRatio == "9:16" ? "1080x1920" : aspectRatio == "4:3" ? "1024x768" : aspectRatio == "3:4" ? "768x1024" : "1024x1024";
+
   let payload = {
     client_task_id: clientTaskId,
     prompt: body.prompt,
     model: "gpt-image-2",
-    size: body.size || "1024x1024",
+    size: size,
     quality: body.quality && body.quality !== "auto" ? body.quality : "medium",
   };
 
@@ -611,12 +623,9 @@ async function processGptImage2Task(job) {
           finalData = [finalData[finalData.length - 1]];
         }
 
-        finalData = await uploadInlineMediaTree(finalData, baseUrl, "png");
-        const uploadedResult = await uploadInlineMediaTree(
-          item,
-          baseUrl,
-          "png",
-        );
+        const uploaded = new Map();
+        finalData = await uploadInlineMediaTree(finalData, baseUrl, "png", "", uploaded);
+        const uploadedResult = await uploadInlineMediaTree(item, baseUrl, "png", "", uploaded);
         await updateJob(job.id, {
           status: "completed",
           data: finalData,
