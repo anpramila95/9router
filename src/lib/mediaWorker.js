@@ -2,6 +2,7 @@ import Redis from "ioredis";
 import axios from "axios";
 import { makeKv } from "@/lib/db/helpers/kvStore.js";
 import { notifyMediaError } from "@/lib/telegramNotifier.js";
+import { saveUploadedFile } from "@/lib/uploadService.js";
 
 const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379";
 const QUEUE_KEY = "mcp:media:jobs:queue";
@@ -28,6 +29,32 @@ function getGpt2ApiAuthToken() {
 const mcpJobsKv = makeKv("mcpJob");
 const memoryCache = new Map();
 const localQueue = [];
+
+function uploadBaseUrl(baseUrl) {
+  try {
+    return new URL(baseUrl).origin;
+  } catch {
+    return "";
+  }
+}
+
+async function uploadInlineMedia(value, baseUrl, format) {
+  if (typeof value !== "string" || !/^data:[^;]+;base64,/i.test(value.trim())) return value;
+  return saveUploadedFile(value, { format }, uploadBaseUrl(baseUrl));
+}
+
+async function uploadInlineMediaTree(value, baseUrl, format) {
+  if (typeof value === "string") return uploadInlineMedia(value, baseUrl, format);
+  if (Array.isArray(value)) return Promise.all(value.map((item) => uploadInlineMediaTree(item, baseUrl, format)));
+  if (!value || typeof value !== "object") return value;
+  const entries = await Promise.all(
+    Object.entries(value).map(async ([key, item]) => [
+      key,
+      await uploadInlineMediaTree(item, baseUrl, format),
+    ]),
+  );
+  return Object.fromEntries(entries);
+}
 let activeWorkers = 0;
 let workerRunning = false;
 let redisClient = null;
@@ -546,10 +573,12 @@ async function processGptImage2Task(job) {
           finalData = [finalData[finalData.length - 1]];
         }
 
+        finalData = await uploadInlineMediaTree(finalData, baseUrl, "png");
+        const uploadedResult = await uploadInlineMediaTree(item, baseUrl, "png");
         await updateJob(job.id, {
           status: "completed",
           data: finalData,
-          result: item,
+          result: uploadedResult,
           usage: item.usage,
         });
         console.log(
@@ -639,10 +668,12 @@ async function processImageJob(job) {
     finalData = [finalData[finalData.length - 1]];
   }
 
+  const uploadedData = await uploadInlineMediaTree(finalData, baseUrl, "png");
+  const uploadedResult = await uploadInlineMediaTree(result, baseUrl, "png");
   await updateJob(job.id, {
     status: "completed",
-    result,
-    data: finalData,
+    result: uploadedResult,
+    data: uploadedData,
   });
 }
 
@@ -675,10 +706,12 @@ async function processVideoJob(job) {
     console.log(
       `[MediaWorker] Video job ${job.id} (Grok) completed immediately with URL: ${finalUrl.slice(0, 100)}`,
     );
+    const uploadedUrl = await uploadInlineMedia(finalUrl, baseUrl, "mp4");
+    const uploadedResult = await uploadInlineMediaTree(createRes, baseUrl, "mp4");
     await updateJob(job.id, {
       status: "completed",
-      video_url: finalUrl,
-      result: createRes,
+      video_url: uploadedUrl,
+      result: uploadedResult,
     });
     return;
   }
@@ -714,10 +747,12 @@ async function processVideoJob(job) {
       ) {
         const videoUrl =
           pollRes?.video?.url || pollRes?.videoUrl || pollRes?.url;
+        const uploadedUrl = await uploadInlineMedia(videoUrl, baseUrl, "mp4");
+        const uploadedResult = await uploadInlineMediaTree(pollRes, baseUrl, "mp4");
         await updateJob(job.id, {
           status: "completed",
-          video_url: videoUrl,
-          result: pollRes,
+          video_url: uploadedUrl,
+          result: uploadedResult,
         });
         console.log(
           `[MediaWorker] Video job ${job.id} completed with URL: ${videoUrl}`,
