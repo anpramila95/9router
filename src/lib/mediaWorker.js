@@ -131,7 +131,7 @@ export async function updateJob(id, updates) {
     } catch {}
   }
 
-  mcpJobsKv.set(id, updated).catch(() => {});
+  await mcpJobsKv.set(id, updated);
   return updated;
 }
 
@@ -656,15 +656,18 @@ async function processVideoJob(job) {
     requestBody,
   );
 
-  // Grok returns video directly upon creation
+  // Grok may return its completed payload directly or under `data`.
+  const videoResult = createRes?.data && typeof createRes.data === "object"
+    ? createRes.data
+    : createRes;
   const directVideoUrl =
-    createRes?.video_url ||
-    createRes?.videoUrl ||
-    createRes?.video?.url ||
-    (typeof createRes?.video === "string" ? createRes.video : null) ||
-    (createRes?.status === "done" &&
-      (createRes?.video?.url || createRes?.videoUrl || createRes?.video)) ||
-    createRes?.url;
+    videoResult?.video_url ||
+    videoResult?.videoUrl ||
+    videoResult?.video?.url ||
+    (typeof videoResult?.video === "string" ? videoResult.video : null) ||
+    (videoResult?.status === "done" &&
+      (videoResult?.video?.url || videoResult?.videoUrl || videoResult?.video)) ||
+    videoResult?.url;
 
   if (directVideoUrl) {
     const finalUrl =
