@@ -4,6 +4,7 @@ import { makeKv } from "@/lib/db/helpers/kvStore.js";
 import { notifyMediaError } from "@/lib/telegramNotifier.js";
 import { saveUploadedFile } from "@/lib/uploadService.js";
 import { uploadMediaToDigen } from "@/lib/digenUpload.js";
+import { submitMevideoaiVideo, pollMevideoaiTask } from "@/lib/mevideoai.js";
 
 const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379";
 const QUEUE_KEY = "mcp:media:jobs:queue";
@@ -741,8 +742,81 @@ async function processImageJob(job) {
   });
 }
 
+async function processMevideoaiVideoJob(job) {
+  const { baseUrl = "", requestBody = {} } = job.payload || {};
+  console.log(`[MediaWorker] Submitting video job ${job.id} to Mevideoai...`);
+
+  const { taskWorkerId, raw } = await submitMevideoaiVideo(requestBody);
+  await updateJob(job.id, {
+    upstreamId: taskWorkerId,
+    taskId: taskWorkerId,
+    status: "processing",
+    upstreamTask: raw,
+  });
+
+  console.log(
+    `[MediaWorker] Mevideoai job ${job.id} queued (taskWorkerId: ${taskWorkerId}), polling every 10s (max 180s)...`,
+  );
+
+  const startTime = Date.now();
+  const maxPollMs = 180 * 1000;
+  while (Date.now() - startTime < maxPollMs) {
+    await new Promise((r) => setTimeout(r, 10000));
+    try {
+      const pollResult = await pollMevideoaiTask(taskWorkerId);
+      if (pollResult.status === "completed") {
+        console.log(
+          `[MediaWorker] Mevideoai job ${job.id} completed: ${pollResult.videoUrl}`,
+        );
+        const uploaded = new Map();
+        const uploadedUrl = await uploadInlineMedia(
+          pollResult.videoUrl,
+          baseUrl,
+          "mp4",
+          true,
+          uploaded,
+        );
+        await updateJob(job.id, {
+          status: "completed",
+          video_url: uploadedUrl,
+          result: pollResult.raw,
+        });
+        return;
+      }
+      if (pollResult.status === "failed") {
+        const cleaned = cleanErrorMessage(
+          pollResult.error || "Video generation failed upstream",
+        );
+        console.warn(`[MediaWorker] Mevideoai job ${job.id} failed, stopping polling immediately:`, cleaned);
+        await updateJob(job.id, {
+          status: "failed",
+          error: cleaned,
+          result: pollResult.raw,
+        });
+        return;
+      }
+    } catch (pollErr) {
+      console.warn(
+        `[MediaWorker] Polling error for Mevideoai task ${taskWorkerId}:`,
+        pollErr.message,
+      );
+    }
+  }
+
+  await updateJob(job.id, {
+    status: "failed",
+    error: "Video generation timed out after 180s",
+  });
+}
+
 async function processVideoJob(job) {
   const { baseUrl = "", token = "", requestBody = {} } = job.payload || {};
+  const model = String(requestBody.model || "").toLowerCase();
+
+  if (model.includes("veo3")) {
+    return processMevideoaiVideoJob(job);
+  }
+
   const createRes = await executeApiCall(
     baseUrl,
     token,

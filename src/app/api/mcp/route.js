@@ -15,6 +15,7 @@ import {
   waitForActiveWorkers,
   cleanErrorMessage,
 } from "@/lib/mediaWorker.js";
+import { pollMevideoaiTask } from "@/lib/mevideoai.js";
 
 export { waitForActiveWorkers, cleanErrorMessage };
 
@@ -143,7 +144,7 @@ export const mediaTools = [
   {
     name: "video.generate",
     description:
-      "Generate video through Bình Dân Học AI. Supported models: 'ai2w/veo3', 'ai2w/grok (default)'.\n" +
+      "Generate video through Bình Dân Học AI. Supported models: 'ai2w/veo3  (default)', 'ai2w/grok'.\n" +
       "CRITICAL: 'images' ONLY accepts public HTTP/HTTPS URLs. DO NOT pass Base64 or local paths directly into video.generate. You MUST call 'image.upload.getUrl' first to upload your image and get the public URL, then pass that URL here.\n" +
       "WORKFLOW / ASYNC JOB: Returns immediately with { id: jobId, status: 'pending' }. The video generates in the background. Poll 'media.status' passing id: jobId until status is 'completed' to get the final video URL.\n" +
       "Output example:\n" +
@@ -161,9 +162,10 @@ export const mediaTools = [
       properties: {
         model: {
           type: "string",
-          default: "ai2w/grok",
-          enum: ["ai2w/veo3", "ai2w/grok"],
-          description: "Video model to use: ai2w/veo3  or ai2w/grok (default)",
+          default: "ai2w/veo3",
+          enum: ["ai2w/veo3", "veo3", "ai2w/grok"],
+          description:
+            "Video model to use: ai2w/veo3  (default), veo3, or ai2w/grok",
         },
         prompt: { type: "string" },
         mode: {
@@ -747,7 +749,11 @@ async function handle(request) {
         jobId,
         status: "pending",
       };
-    } else if (name === "media.status" || name === "image.status") {
+    } else if (
+      name === "media.status" ||
+      name === "image.status" ||
+      name === "video.status"
+    ) {
       if (!args.id) return error(id, -32602, "id is required");
       const job = await getJob(args.id);
       if (job) {
@@ -779,16 +785,34 @@ async function handle(request) {
             : {}),
         };
       } else {
-        // Fallback: in case an upstream video pollingId was passed directly
+        // Fallback: in case an upstream video pollingId / taskWorkerId was passed directly
         try {
-          const direct = await callApi(
-            request,
-            `/videos/${encodeURIComponent(args.id)}`,
-            "GET",
-          );
-          result = direct;
+          const mevideo = await pollMevideoaiTask(args.id);
+          result = {
+            id: args.id,
+            type: "video",
+            status: mevideo.status,
+            ...(mevideo.status === "completed"
+              ? {
+                  video_url: mevideo.videoUrl,
+                  result: mevideo.raw,
+                }
+              : {}),
+            ...(mevideo.status === "failed"
+              ? { error: cleanErrorMessage(mevideo.error) }
+              : {}),
+          };
         } catch {
-          return error(id, -32602, `Job not found: ${args.id}`);
+          try {
+            const direct = await callApi(
+              request,
+              `/videos/${encodeURIComponent(args.id)}`,
+              "GET",
+            );
+            result = direct;
+          } catch {
+            return error(id, -32602, `Job not found: ${args.id}`);
+          }
         }
       }
     } else if (name === "video.generate") {
@@ -830,6 +854,12 @@ async function handle(request) {
         resolutionName: "720p",
         ...cleanArgs,
         prompt: args.prompt,
+        aspectRatio: cleanArgs.aspectRatio || args.aspectRatio,
+        ratio:
+          cleanArgs.ratio ||
+          args.ratio ||
+          cleanArgs.aspectRatio ||
+          args.aspectRatio,
       };
 
       if (mode) {
