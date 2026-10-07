@@ -435,7 +435,13 @@ export const PATTERN_CAPABILITIES = [
  */
 export function aggregateComboCapabilities(comboModels, comboLookup = null, resolveCaps = null, _depth = 0) {
   if (!comboModels?.length || _depth > 6) return null;
-  const allCaps = comboModels.map((fullId) => {
+  const rawList = Array.isArray(comboModels) ? comboModels : [];
+  const normalizedModels = rawList
+    .map((item) => (typeof item === "string" ? item : item?.model))
+    .filter((id) => typeof id === "string" && id.trim().length > 0);
+  if (!normalizedModels.length) return null;
+
+  const allCaps = normalizedModels.map((fullId) => {
     // Nested combo: bare name (no slash) that exists in the lookup — recurse
     if (!fullId.includes("/") && comboLookup?.[fullId]) {
       return aggregateComboCapabilities(comboLookup[fullId], comboLookup, resolveCaps, _depth + 1)

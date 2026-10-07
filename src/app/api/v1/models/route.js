@@ -311,7 +311,14 @@ export async function buildModelsList(kindFilter, options = {}) {
   const models = [];
 
   // Lookup map so aggregateComboCapabilities can recursively resolve nested combos
-  const comboByName = Object.fromEntries(combos.map((c) => [c.name, c.models]));
+  const comboByName = Object.fromEntries(
+    combos.map((c) => [
+      c.name,
+      (c.models || [])
+        .map((m) => (typeof m === "string" ? m : m?.model))
+        .filter((id) => typeof id === "string" && id.trim().length > 0),
+    ])
+  );
 
   // Combos first (filtered by kind). Web combos expose `kind` so AI knows search vs fetch.
   for (const combo of combos) {
@@ -324,7 +331,10 @@ export async function buildModelsList(kindFilter, options = {}) {
     if (combo.kind === "webSearch" || combo.kind === "webFetch") {
       entry.kind = combo.kind;
     } else {
-      const comboCaps = aggregateComboCapabilities(combo.models, comboByName);
+      const modelIds = (combo.models || [])
+        .map((m) => (typeof m === "string" ? m : m?.model))
+        .filter((id) => typeof id === "string" && id.trim().length > 0);
+      const comboCaps = aggregateComboCapabilities(modelIds, comboByName);
       if (comboCaps) entry.capabilities = comboCaps;
     }
     models.push(entry);
