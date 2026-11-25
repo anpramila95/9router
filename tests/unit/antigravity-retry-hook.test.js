@@ -98,4 +98,68 @@ describe("antigravity computeRetryDelay hook (D3)", () => {
     expect(out.requestId).toMatch(/^agent\/[0-9a-f-]{36}\/\d{13}\/[0-9a-f-]{36}\/\d+$/);
     expect(out.request.generationConfig.maxOutputTokens).toBe(64000);
   });
+
+  describe("parseError handling", () => {
+    it("extracts detailed Google RPC error fields (message, status, reason)", () => {
+      const errorJson = JSON.stringify({
+        error: {
+          code: 403,
+          message: "The caller does not have permission",
+          status: "PERMISSION_DENIED",
+          details: [
+            {
+              "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+              reason: "IAM_PERMISSION_DENIED",
+              domain: "daily-cloudcode-pa.googleapis.com",
+            },
+          ],
+        },
+      });
+      const parsed = ag.parseError({ status: 403 }, errorJson);
+      expect(parsed.status).toBe(403);
+      expect(parsed.message).toBe(
+        "The caller does not have permission | status: PERMISSION_DENIED | reason: IAM_PERMISSION_DENIED | domain: daily-cloudcode-pa.googleapis.com"
+      );
+    });
+
+    it("extracts quota failure violation description", () => {
+      const errorJson = JSON.stringify({
+        error: {
+          code: 403,
+          message: "Quota exceeded",
+          status: "RESOURCE_EXHAUSTED",
+          details: [
+            {
+              violations: [
+                { description: "GenerateContent requests per minute exceeded" },
+              ],
+            },
+          ],
+        },
+      });
+      const parsed = ag.parseError({ status: 403 }, errorJson);
+      expect(parsed.message).toBe(
+        "Quota exceeded | status: RESOURCE_EXHAUSTED | GenerateContent requests per minute exceeded"
+      );
+    });
+
+    it("handles array-wrapped error from Google stream/batch", () => {
+      const errorJson = JSON.stringify([
+        {
+          error: {
+            code: 403,
+            message: "Project lacks access to model",
+            status: "PERMISSION_DENIED",
+          },
+        },
+      ]);
+      const parsed = ag.parseError({ status: 403 }, errorJson);
+      expect(parsed.message).toBe("Project lacks access to model | status: PERMISSION_DENIED");
+    });
+
+    it("returns informative message for empty response body", () => {
+      const parsed = ag.parseError({ status: 403 }, "");
+      expect(parsed.message).toBe("HTTP 403 (empty upstream response)");
+    });
+  });
 });

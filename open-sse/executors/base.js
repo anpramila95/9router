@@ -94,7 +94,21 @@ export class BaseExecutor {
   }
 
   parseError(response, bodyText) {
-    return { status: response.status, message: bodyText || `HTTP ${response.status}` };
+    if (!bodyText) {
+      return { status: response.status, message: `HTTP ${response.status}` };
+    }
+    try {
+      const json = JSON.parse(bodyText);
+      const root = Array.isArray(json) ? (json[0] || {}) : json;
+      const err = root.error || root;
+      let msg = err.message || err.error || root.message;
+      if (typeof msg === "object") msg = JSON.stringify(msg);
+      if (msg) {
+        const extra = err.status || err.code ? ` (${err.status || err.code})` : "";
+        return { status: response.status, message: `${msg}${extra}` };
+      }
+    } catch {}
+    return { status: response.status, message: bodyText };
   }
 
   async execute({ model, body, stream, credentials, signal, log, proxyOptions = null }) {

@@ -429,6 +429,41 @@ export class AntigravityExecutor extends BaseExecutor {
     return totalMs > 0 ? totalMs : null;
   }
 
+  parseError(response, bodyText) {
+    if (!bodyText) {
+      return { status: response.status, message: `HTTP ${response.status} (empty upstream response)` };
+    }
+    try {
+      const parsed = JSON.parse(bodyText);
+      const root = Array.isArray(parsed) ? (parsed[0] || {}) : parsed;
+      const err = root.error || root;
+      let msg = err.message || err.error || root.message;
+      if (typeof msg === "object") msg = JSON.stringify(msg);
+
+      const parts = [];
+      if (msg) parts.push(msg);
+      if (err.status && err.status !== msg) parts.push(`status: ${err.status}`);
+
+      const details = Array.isArray(err.details) ? err.details : [];
+      for (const d of details) {
+        if (d?.reason) parts.push(`reason: ${d.reason}`);
+        if (d?.domain && d.domain !== "googleapis.com") parts.push(`domain: ${d.domain}`);
+        if (Array.isArray(d?.violations)) {
+          for (const v of d.violations) {
+            if (v?.description) parts.push(v.description);
+          }
+        }
+        if (d?.detail) parts.push(d.detail);
+        if (d?.message && d.message !== msg) parts.push(d.message);
+      }
+
+      if (parts.length > 0) {
+        return { status: response.status, message: parts.join(" | ") };
+      }
+    } catch {}
+    return super.parseError(response, bodyText);
+  }
+
   extractErrorMessage(errorJson, bodyText = "") {
     return [
       errorJson?.error?.message,

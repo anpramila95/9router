@@ -280,7 +280,8 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
   log.warn("AUTH", `${connName} locked ${lockKey} for ${Math.round(cooldownMs / 1000)}s [${status}]`);
 
   if (provider && status && reason) {
-    console.error(`❌ ${provider} [${status}]: ${reason}`);
+    const cleanReason = reason.startsWith(`[${status}]: `) ? reason.slice(`[${status}]: `.length) : reason;
+    console.error(`❌ ${provider} [${status}]: ${cleanReason}`);
   }
 
   return { shouldFallback: true, cooldownMs };

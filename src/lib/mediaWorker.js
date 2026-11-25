@@ -1,8 +1,13 @@
 import Redis from "ioredis";
 import axios from "axios";
+import dns from "node:dns/promises";
+import net from "node:net";
+import http from "node:http";
+import https from "node:https";
 import { makeKv } from "@/lib/db/helpers/kvStore.js";
 import { notifyMediaError } from "@/lib/telegramNotifier.js";
 import { saveUploadedFile } from "@/lib/uploadService.js";
+import { pipelineTemplate, pipelinePath, assertPipelineResultSafe, allowedPipelineEnvKeys } from "./mediaPipelineHelpers.js";
 import { uploadMediaToDigen } from "@/lib/digenUpload.js";
 import { submitMevideoaiVideo, pollMevideoaiTask } from "@/lib/mevideoai.js";
 
@@ -10,6 +15,8 @@ const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379";
 const QUEUE_KEY = "mcp:media:jobs:queue";
 const JOB_PREFIX = "mcp:media:job:";
 const MAX_CONCURRENT_JOBS = 20;
+const PIPELINE_MAX_STEPS = 12;
+const PIPELINE_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 
 function getGpt2ApiBaseUrl() {
   return (
@@ -524,16 +531,18 @@ async function processGptImage2Task(job) {
     images = [{ image_url: String(body.image).trim() }];
   }
 
-  const aspectRatio = body.aspectRatio || "1:1";
+  const aspectRatio = body.aspectRatio || "16:9";
 
-  //map to size 1:1 -> 1024x1024, 16:9 -> 1920x1080, 9:16 -> 1080x1920, 4:3 -> 1024x768, 3:4 -> 768x1024
-  const size = aspectRatio == "1:1" ? "1024x1024" : aspectRatio == "16:9" ? "1920x1080" : aspectRatio == "9:16" ? "1080x1920" : aspectRatio == "4:3" ? "1024x768" : aspectRatio == "3:4" ? "768x1024" : "1024x1024";
+  // Codex accepts only these sizes; preserve other ratios in the request, without silently making them square.
+  const sizes = { "1:1": "1024x1024", "16:9": "1920x1080", "9:16": "1080x1920", "4:3": "1024x768", "3:4": "768x1024" };
+  const size = sizes[aspectRatio];
 
   let payload = {
     client_task_id: clientTaskId,
     prompt: body.prompt,
     model: "gpt-image-2",
-    size: size,
+    ...(size ? { size } : {}),
+    aspectRatio,
     quality: body.quality && body.quality !== "auto" ? body.quality : "medium",
   };
 
@@ -668,7 +677,118 @@ async function processGptImage2Task(job) {
   });
 }
 
+function isPublicIp(ip) {
+  if (net.isIPv4(ip)) {
+    const [a, b] = ip.split(".").map(Number);
+    return !(a === 0 || a === 10 || a === 100 || a === 127 || a >= 224 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && (b === 0 || b === 168)) || (a === 198 && (b === 18 || b === 19 || b === 51)) || (a === 203 && b === 0));
+  }
+  // Reject IPv6 until all special-use and embedded IPv4 ranges are classified.
+  return false;
+}
+
+async function pipelineUrl(raw, base) {
+  const url = new URL(raw, base);
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new Error("Pipeline URL rejected");
+  const addresses = net.isIP(url.hostname) ? [{ address: url.hostname }] : await dns.lookup(url.hostname, { all: true });
+  if (!addresses.length || addresses.some(({ address }) => !isPublicIp(address))) throw new Error("Pipeline URL resolves to a non-public address");
+  url._pipelineAddresses = addresses.map(({ address }) => address);
+  return url;
+}
+
+export async function pipelineRequest(step, context, timeoutMs = 30000) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const request = pipelineTemplate(step.request || {}, context);
+    if (step.request?.url === "gateway://images/generations") {
+      if ((request.method || "POST").toUpperCase() !== "POST" || Object.keys(request.headers || {}).length) throw new Error("Invalid gateway request");
+      const { handleImageGeneration } = await import("@/sse/handlers/imageGeneration.js");
+      // ponytail: Codex supports only square, landscape and portrait sizes; update when exact ratios are supported.
+      const ratios = { "1:1": "1024x1024", "16:9": "1536x1024", "9:16": "1024x1536", "4:3": "1536x1024", "3:4": "1024x1536" };
+      if (!request.body?.size && ratios[request.body?.aspectRatio]) request.body.size = ratios[request.body.aspectRatio];
+      const headers = { "content-type": "application/json" };
+      if (context.gatewayToken) headers.authorization = `Bearer ${context.gatewayToken}`;
+      const response = await handleImageGeneration(new Request("http://localhost/v1/images/generations", { method: "POST", headers, body: JSON.stringify(request.body || {}), signal: controller.signal }));
+      if (!response.ok) throw new Error("Gateway request failed");
+      const text = await response.text();
+      if (Buffer.byteLength(text) > PIPELINE_MAX_RESPONSE_BYTES) throw new Error("Pipeline response too large");
+      const parsed = JSON.parse(text);
+      assertPipelineResultSafe(parsed, [...context.allowedEnv]);
+      return parsed;
+    }
+    const url = await Promise.race([pipelineUrl(request.url, context.base_url), new Promise((_, reject) => controller.signal.addEventListener("abort", () => reject(new Error("timeout")), { once: true }))]);
+    const body = (request.method || "POST").toUpperCase() === "GET" ? undefined : JSON.stringify(request.body || {});
+    const transport = url.protocol === "https:" ? https : http;
+    const result = await new Promise((resolve, reject) => {
+      const req = transport.request(url, { method: request.method || "POST", headers: request.headers || {}, signal: controller.signal, lookup: (_host, _opts, callback) => callback(null, url._pipelineAddresses[0], net.isIP(url._pipelineAddresses[0])) }, (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400) { res.resume(); reject(new Error("Pipeline redirects rejected")); return; }
+        const chunks = []; let size = 0;
+        res.on("data", (chunk) => { size += chunk.length; if (size > PIPELINE_MAX_RESPONSE_BYTES) req.destroy(new Error("Pipeline response too large")); else chunks.push(chunk); });
+        res.on("end", () => resolve({ status: res.statusCode, text: Buffer.concat(chunks).toString("utf8") }));
+      });
+      req.on("error", reject);
+      if (body) req.write(body);
+      req.end();
+    });
+    let parsed; try { parsed = JSON.parse(result.text); } catch { parsed = result.text; }
+    if (result.status < 200 || result.status >= 300) throw new Error(`Pipeline request failed (HTTP ${result.status})`);
+    assertPipelineResultSafe(parsed, [...context.allowedEnv]);
+    return parsed;
+  } catch {
+    throw new Error("Media pipeline request failed");
+  } finally { clearTimeout(timeout); }
+}
+
+async function processConfiguredPipeline(job, type) {
+  const { getSettings } = await import("@/lib/db/index.js");
+  const settings = await getSettings();
+  if (settings.mediaPipelinesEnabled !== true) return false;
+  const pipelines = Array.isArray(settings.mediaPipelines) ? settings.mediaPipelines : [];
+  const types = type === "video" ? ["video", "text_to_video", "image_to_video", "two_step_pipeline"] : ["image", "text_to_image", "image_to_image", "image_generation"];
+  const pipeline = pipelines.find((p) => types.includes(p?.type) && p.is_default === true);
+  if (!pipeline) return false;
+  if (!Array.isArray(pipeline.steps) || !pipeline.steps.length || pipeline.steps.length > PIPELINE_MAX_STEPS) throw new Error("Invalid media pipeline steps");
+  const envKeys = Array.isArray(pipeline.required_env_keys) ? pipeline.required_env_keys : [];
+  const allowedEnv = allowedPipelineEnvKeys();
+  if (envKeys.some((key) => typeof key !== "string" || !allowedEnv.has(key) || !process.env[key])) throw new Error("Required media pipeline environment key unavailable");
+  const inputBody = job.payload?.pipelineInput || job.payload?.requestBody || job.payload?.body || {};
+  const images = inputBody.images || [];
+  const imageUrl = images[0]?.image_url || images[0] || inputBody.image_url || inputBody.image;
+  const imageUrls = (Array.isArray(images) && images.length ? images : imageUrl ? [imageUrl] : []).map((image) => typeof image === "string" ? image : image?.image_url).filter(Boolean);
+  const context = { variables: pipeline.variables || {}, inputs: { prompt: inputBody.prompt, images, aspectRatio: inputBody.aspectRatio ?? "16:9", image_url: imageUrl, image_urls: imageUrls }, base_url: getGpt2ApiBaseUrl(), allowedEnv: new Set(envKeys), gatewayToken: job.payload?.token || "" };
+  for (const step of pipeline.steps) {
+    if (!step || !["async_task", "request"].includes(step.type)) throw new Error("Invalid media pipeline step");
+    const initial = await pipelineRequest(step, context);
+    let finalResponse = initial;
+    if (step.type === "async_task") {
+      const taskId = pipelinePath(initial, step.request?.task_id_path);
+      if (!taskId || !step.polling) throw new Error("Pipeline task ID missing");
+      const poll = pipelineTemplate(step.polling, { ...context, [step.id]: { response: initial, task_id: taskId } });
+      const deadline = Date.now() + Math.min(1800, Math.max(1, Number(poll.timeout_seconds) || 300)) * 1000;
+      while (Date.now() < deadline) {
+        const remainingMs = deadline - Date.now();
+        if (remainingMs <= 0) break;
+        await new Promise((resolve) => setTimeout(resolve, Math.min(remainingMs, Math.max(1, Number(poll.interval_seconds) || 3) * 1000)));
+        if (Date.now() >= deadline) break;
+        const response = await pipelineRequest({ request: { method: poll.method, url: poll.url, headers: poll.headers, body: poll.body } }, { ...context, [step.id]: { response: initial, task_id: taskId } }, Math.min(30000, deadline - Date.now()));
+        const status = pipelinePath(response, poll.conditions?.success_path);
+        if (status === poll.conditions?.success_value) { finalResponse = response; break; }
+        if ((poll.conditions?.failed_value || []).includes(status)) throw new Error("Media pipeline task failed");
+        finalResponse = response;
+      }
+      if (Date.now() >= deadline) throw new Error("Media pipeline polling timed out");
+    }
+    const outputs = Object.fromEntries(Object.entries(step.outputs || {}).map(([key, path]) => [key, pipelinePath(finalResponse, path)]));
+    context[step.id] = { response: initial, outputs, task_id: context[step.id]?.task_id };
+  }
+  const result = pipelineTemplate(pipeline.final_response || {}, context);
+  assertPipelineResultSafe(result, envKeys);
+  await updateJob(job.id, { status: "completed", result, ...(Array.isArray(result.data) ? { data: result.data } : {}), ...(result.video_result ? { video_url: result.video_result } : {}) });
+  return true;
+}
+
 async function processImageJob(job) {
+  if (await processConfiguredPipeline(job, "image")) return;
   const { baseUrl = "", token = "", body = {} } = job.payload || {};
   const m = String(body?.model || "").toLowerCase();
 
@@ -810,6 +930,7 @@ async function processMevideoaiVideoJob(job) {
 }
 
 async function processVideoJob(job) {
+  if (await processConfiguredPipeline(job, "video")) return;
   const { baseUrl = "", token = "", requestBody = {} } = job.payload || {};
   const model = String(requestBody.model || "").toLowerCase();
 
