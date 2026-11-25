@@ -1,5 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 import { getAdapter } from "../driver.js";
+import { keyAccessFromColumns, keyAccessToColumns } from "@/shared/utils/keyAccess.js";
+import { KEY_ACCESS_UNRESTRICTED } from "@/shared/constants/keyAccess.js";
 
 function rowToKey(row) {
   if (!row) return null;
@@ -16,6 +18,7 @@ function rowToKey(row) {
     limitImageDaily: row.limitImageDaily != null ? Number(row.limitImageDaily) : null,
     limitVideoDaily: row.limitVideoDaily != null ? Number(row.limitVideoDaily) : null,
     models: normModels(row.models),
+    access: keyAccessFromColumns(row.accessRestricted, row.accessAllow),
   };
 }
 
@@ -107,6 +110,7 @@ export async function getApiKeyById(id) {
   return rowToKey(row);
 }
 
+// Used by the /v1 handlers to read the presented key's access settings.
 export async function getApiKeyByKey(key) {
   if (!key) return null;
   const db = await getAdapter();
@@ -137,9 +141,11 @@ export async function createApiKey(name, machineId, limits = {}, customKey = nul
     limitImageDaily: normLimit(limits.limitImageDaily),
     limitVideoDaily: normLimit(limits.limitVideoDaily),
     models: modelsVal,
+    access: { restricted: false, allow: [] },
   };
+  const cols = keyAccessToColumns(KEY_ACCESS_UNRESTRICTED);
   db.run(
-    `INSERT INTO apiKeys(id, key, name, machineId, isActive, createdAt, limit5h, limit7d, limit30d, limitImageDaily, limitVideoDaily, models) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO apiKeys(id, key, name, machineId, isActive, createdAt, limit5h, limit7d, limit30d, limitImageDaily, limitVideoDaily, models, accessRestricted, accessAllow) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       apiKey.id,
       apiKey.key,
@@ -153,6 +159,8 @@ export async function createApiKey(name, machineId, limits = {}, customKey = nul
       apiKey.limitImageDaily,
       apiKey.limitVideoDaily,
       modelsVal ? JSON.stringify(modelsVal) : null,
+      cols.accessRestricted,
+      cols.accessAllow,
     ]
   );
   return apiKey;
@@ -171,8 +179,9 @@ export async function updateApiKey(id, data) {
     if (data.limitImageDaily !== undefined) merged.limitImageDaily = normLimit(data.limitImageDaily);
     if (data.limitVideoDaily !== undefined) merged.limitVideoDaily = normLimit(data.limitVideoDaily);
     if (data.models !== undefined) merged.models = normModels(data.models);
+    const cols = keyAccessToColumns(merged.access);
     db.run(
-      `UPDATE apiKeys SET key = ?, name = ?, machineId = ?, isActive = ?, limit5h = ?, limit7d = ?, limit30d = ?, limitImageDaily = ?, limitVideoDaily = ?, models = ? WHERE id = ?`,
+      `UPDATE apiKeys SET key = ?, name = ?, machineId = ?, isActive = ?, limit5h = ?, limit7d = ?, limit30d = ?, limitImageDaily = ?, limitVideoDaily = ?, models = ?, accessRestricted = ?, accessAllow = ? WHERE id = ?`,
       [
         merged.key,
         merged.name,
@@ -184,10 +193,12 @@ export async function updateApiKey(id, data) {
         merged.limitImageDaily,
         merged.limitVideoDaily,
         merged.models ? JSON.stringify(merged.models) : null,
+        cols.accessRestricted,
+        cols.accessAllow,
         id,
       ]
     );
-    result = merged;
+    result = rowToKey(db.get(`SELECT * FROM apiKeys WHERE id = ?`, [id]));
   });
   return result;
 }

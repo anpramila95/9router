@@ -1,12 +1,19 @@
 import { EventEmitter } from "events";
+import { createHash } from "node:crypto";
 import { getAdapter } from "../driver.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
 import { getMeta, setMeta } from "../helpers/metaStore.js";
 
+function apiKeyId(key) {
+  return key && typeof key === "string" ? `key-${createHash("sha256").update(key.trim()).digest("hex")}` : "local-no-key";
+}
+
 function maskApiKey(key) {
   if (!key || typeof key !== "string") return null;
-  if (key.length <= 8) return key.charAt(0) + "***";
-  return key.slice(0, 8) + "***";
+  const trimmed = key.trim();
+  if (trimmed.length <= 12) return trimmed.charAt(0) + "***";
+  // Keep the tail: keys sharing a machine-id prefix (team keys) must not collide.
+  return trimmed.slice(0, 8) + "***" + trimmed.slice(-4);
 }
 
 const PENDING_TIMEOUT_MS = 60 * 1000;
@@ -88,9 +95,8 @@ function aggregateEntryToDay(day, entry) {
     addToCounter(day.byAccount, entry.connectionId, { ...vals, meta: { rawModel: entry.model, provider: entry.provider } });
   }
 
-  const apiKeyVal = entry.apiKey && typeof entry.apiKey === "string" ? entry.apiKey : "local-no-key";
-  const akModelKey = `${apiKeyVal}|${entry.model}|${entry.provider || "unknown"}`;
-  addToCounter(day.byApiKey, akModelKey, { ...vals, meta: { rawModel: entry.model, provider: entry.provider, apiKey: entry.apiKey || null } });
+  const akModelKey = `${apiKeyId(entry.apiKey)}|${entry.model}|${entry.provider || "unknown"}`;
+  addToCounter(day.byApiKey, akModelKey, { ...vals, meta: { rawModel: entry.model, provider: entry.provider, apiKeyId: apiKeyId(entry.apiKey) } });
 
   const endpoint = entry.endpoint || "Unknown";
   const epKey = `${endpoint}|${entry.model}|${entry.provider || "unknown"}`;
@@ -369,7 +375,9 @@ export async function getUsageStats(period = "all") {
   let allApiKeys = [];
   try { allApiKeys = await getApiKeys(); } catch {}
   const apiKeyMap = {};
-  for (const k of allApiKeys) apiKeyMap[k.key] = { name: k.name, id: k.id, createdAt: k.createdAt };
+  for (const k of allApiKeys) {
+    if (k.key) apiKeyMap[apiKeyId(k.key)] = { name: k.name, id: k.id, createdAt: k.createdAt, masked: maskApiKey(k.key) };
+  }
 
   // recentRequests from live history (last 100 entries enough for 20 deduped)
   const recentRows = db.all(`SELECT timestamp, provider, model, endpoint, tokens, status FROM usageHistory ORDER BY id DESC LIMIT 100`);
@@ -510,15 +518,16 @@ export async function getUsageStats(period = "all") {
         const rawModel = ak.rawModel || "";
         const provider = ak.provider || "";
         const providerDisplayName = providerNodeNameMap[provider] || provider;
-        const apiKeyVal = ak.apiKey;
-        const keyInfo = apiKeyVal ? apiKeyMap[apiKeyVal] : null;
-        const keyName = keyInfo?.name || (apiKeyVal ? apiKeyVal.slice(0, 8) + "..." : "Local (No API Key)");
-        const apiKeyMasked = maskApiKey(apiKeyVal);
+        const id = ak.apiKeyId || apiKeyId(ak.apiKey);
+        const keyInfo = apiKeyMap[id];
+        const apiKeyMasked = keyInfo?.masked || maskApiKey(ak.apiKey);
+        const keyName = keyInfo?.name || apiKeyMasked || (id === "local-no-key" ? "Local (No API Key)" : "Unknown API Key");
         const apiKeyKey = apiKeyMasked || "local-no-key";
+        const statsKey = JSON.stringify([id, rawModel, provider]);
         const imageCount = (ak.endpoint?.includes("images") || ak.endpoint?.includes("image")) ? (ak.requests || 0) : 0;
         const videoCount = (ak.endpoint?.includes("videos") || ak.endpoint?.includes("video")) ? (ak.requests || 0) : 0;
-        if (!stats.byApiKey[akKey]) {
-          stats.byApiKey[akKey] = {
+        if (!stats.byApiKey[statsKey]) {
+          stats.byApiKey[statsKey] = {
             requests: 0,
             promptTokens: 0,
             completionTokens: 0,
@@ -539,14 +548,14 @@ export async function getUsageStats(period = "all") {
             lastUsed: dateKey,
           };
         }
-        stats.byApiKey[akKey].requests += ak.requests || 0;
-        stats.byApiKey[akKey].promptTokens += ak.promptTokens || 0;
-        stats.byApiKey[akKey].completionTokens += ak.completionTokens || 0;
-        stats.byApiKey[akKey].cachedTokens += ak.cachedTokens || 0;
-        stats.byApiKey[akKey].cost += ak.cost || 0;
-        stats.byApiKey[akKey].imageCount += imageCount;
-        stats.byApiKey[akKey].videoCount += videoCount;
-        if (dateKey > (stats.byApiKey[akKey].lastUsed || "")) stats.byApiKey[akKey].lastUsed = dateKey;
+        stats.byApiKey[statsKey].requests += ak.requests || 0;
+        stats.byApiKey[statsKey].promptTokens += ak.promptTokens || 0;
+        stats.byApiKey[statsKey].completionTokens += ak.completionTokens || 0;
+        stats.byApiKey[statsKey].cachedTokens += ak.cachedTokens || 0;
+        stats.byApiKey[statsKey].cost += ak.cost || 0;
+        stats.byApiKey[statsKey].imageCount += imageCount;
+        stats.byApiKey[statsKey].videoCount += videoCount;
+        if (dateKey > (stats.byApiKey[statsKey].lastUsed || "")) stats.byApiKey[statsKey].lastUsed = dateKey;
       }
 
       for (const [epKey, ep] of Object.entries(day.byEndpoint || {})) {
@@ -583,9 +592,7 @@ export async function getUsageStats(period = "all") {
         if (stats.byAccount[accountKey] && new Date(ts) > new Date(stats.byAccount[accountKey].lastUsed)) stats.byAccount[accountKey].lastUsed = ts;
       }
 
-      const apiKeyKey = (e.apiKey && typeof e.apiKey === "string")
-        ? `${e.apiKey}|${e.model}|${e.provider || "unknown"}`
-        : "local-no-key";
+      const apiKeyKey = JSON.stringify([apiKeyId(e.apiKey), e.model, e.provider || ""]);
       if (stats.byApiKey[apiKeyKey] && new Date(ts) > new Date(stats.byApiKey[apiKeyKey].lastUsed)) stats.byApiKey[apiKeyKey].lastUsed = ts;
 
       const endpoint = e.endpoint || "Unknown";
@@ -609,8 +616,8 @@ export async function getUsageStats(period = "all") {
 
     for (const r of filtered) {
       const tokens = parseJson(r.tokens, {}) || {};
-      const promptTokens = tokens.prompt_tokens || 0;
-      const completionTokens = tokens.completion_tokens || 0;
+      const promptTokens = tokens.prompt_tokens || tokens.input_tokens || r.promptTokens || 0;
+      const completionTokens = tokens.completion_tokens || tokens.output_tokens || r.completionTokens || 0;
       const cachedTokens = tokens.cached_tokens || tokens.cache_read_input_tokens || 0;
       const entryCost = r.cost || 0;
       const providerDisplayName = providerNodeNameMap[r.provider] || r.provider;
@@ -655,12 +662,13 @@ export async function getUsageStats(period = "all") {
       const endpoint = r.endpoint || "Unknown";
 
       if (r.apiKey && typeof r.apiKey === "string") {
-        const keyInfo = apiKeyMap[r.apiKey];
-        const keyName = keyInfo?.name || r.apiKey.slice(0, 8) + "...";
-        const apiKeyMasked = maskApiKey(r.apiKey);
-        const akKey = `${apiKeyMasked}|${r.model}|${r.provider || "unknown"}`;
         const imageCount = (endpoint.includes("images") || endpoint.includes("image")) ? 1 : 0;
         const videoCount = (endpoint.includes("videos") || endpoint.includes("video")) ? 1 : 0;
+        const apiKeyVal = r.apiKey.trim();
+        const keyInfo = apiKeyMap[apiKeyId(apiKeyVal)];
+        const apiKeyMasked = maskApiKey(apiKeyVal);
+        const keyName = keyInfo?.name || apiKeyMasked || r.apiKey.slice(0, 8) + "...";
+        const akKey = JSON.stringify([apiKeyId(r.apiKey), r.model, r.provider || ""]);
         if (!stats.byApiKey[akKey]) {
           stats.byApiKey[akKey] = {
             requests: 0,

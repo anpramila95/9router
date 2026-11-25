@@ -49,6 +49,8 @@ export const KIND_EXAMPLE_CONFIG = {
       { key: "response_format", label: "Format", type: "select", default: "", options: ["", "url", "b64_json"] },
       { key: "image_detail", label: "Image Detail", type: "select", default: "high", options: ["auto", "low", "high", "original"] },
       { key: "output_format", label: "Codec", type: "select", default: "png", options: ["png", "jpeg", "webp"] },
+      { key: "watermark", label: "Watermark", type: "boolean", default: true },
+      { key: "prompt_extend", label: "Prompt Extend", type: "boolean", default: true },
     ],
   },
   imageToText: {
@@ -70,6 +72,9 @@ export const KIND_EXAMPLE_CONFIG = {
       { key: "mode", label: "Mode", type: "select", default: "text-to-video", options: ["text-to-video", "image-to-video", "reference-to-video"] },
       { key: "videoLength", label: "Duration (s)", type: "number", default: 10, min: 5, max: 60 },
       { key: "resolutionName", label: "Resolution", type: "select", default: "720p", options: ["720p", "1080p", "480p"] },
+      // Image-to-video (muse-web and other executor-driven providers):
+      // an image URL or an uploaded file (sent as a data: URL).
+      { key: "image", label: "Image (URL or upload)", type: "image", default: "" },
     ],
   },
   music: {
