@@ -58,18 +58,24 @@ export async function writeStreamError(writer, statusCode, message) {
  */
 export async function parseUpstreamError(response, executor = null) {
   let bodyText = "";
+  let readError = null;
   try {
     bodyText = await response.text();
-  } catch {
+  } catch (e) {
+    readError = e.message;
     bodyText = "";
   }
+
+  const fallback = readError
+    ? `HTTP ${response.status} (failed to read response: ${readError})`
+    : (DEFAULT_ERROR_MESSAGES[response.status] || `Upstream error: ${response.status}`);
 
   // Let executor-specific parser extract provider-specific fields (e.g. codex resetsAtMs)
   if (executor && typeof executor.parseError === "function") {
     try {
       const parsed = executor.parseError(response, bodyText);
       if (parsed && typeof parsed === "object") {
-        const msg = parsed.message || DEFAULT_ERROR_MESSAGES[response.status] || `Upstream error: ${response.status}`;
+        const msg = parsed.message || fallback;
         return { statusCode: parsed.status || response.status, message: msg, resetsAtMs: parsed.resetsAtMs };
       }
     } catch { /* fall through to default parsing */ }
@@ -84,7 +90,7 @@ export async function parseUpstreamError(response, executor = null) {
   }
 
   const messageStr = typeof message === "string" ? message : JSON.stringify(message);
-  const finalMessage = messageStr || DEFAULT_ERROR_MESSAGES[response.status] || `Upstream error: ${response.status}`;
+  const finalMessage = messageStr || fallback;
 
   return { statusCode: response.status, message: finalMessage };
 }

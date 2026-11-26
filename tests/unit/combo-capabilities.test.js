@@ -152,4 +152,19 @@ describe("aggregateComboCapabilities — nested combo resolution via comboLookup
     expect(caps.reasoning).toBe(true);
     expect(caps.vision).toBe(false);
   });
+
+  it("handles object model entries like { model: '...' } without throwing", () => {
+    const caps = aggregateComboCapabilities([
+      { model: "opencode-go/mimo-v2.5", active: true },
+      { model: "openai/gpt-5" },
+    ]);
+    expect(caps).not.toBeNull();
+    expect(caps.vision).toBe(true);
+    expect(caps.search).toBe(true);
+  });
+
+  it("handles null / non-string items gracefully", () => {
+    const caps = aggregateComboCapabilities([null, undefined, {}, { model: "" }]);
+    expect(caps).toBeNull();
+  });
 });

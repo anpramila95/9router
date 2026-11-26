@@ -5,6 +5,11 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 
+// saveRequestUsage drops an identical entry saved in the same millisecond as a
+// duplicate write (0d216689). Parallel *distinct* requests get distinct timestamps.
+const BASE_TS = Date.now();
+const tsFor = (i) => new Date(BASE_TS - i).toISOString();
+
 const originalDataDir = process.env.DATA_DIR;
 let tempDir;
 let db;
@@ -29,6 +34,7 @@ describe("DB Concurrency — atomic safety", () => {
     const promises = [];
     for (let i = 0; i < N; i++) {
       promises.push(db.saveRequestUsage({
+        timestamp: tsFor(i),
         provider: "openai", model: "gpt-4", connectionId: "c1",
         tokens: { prompt_tokens: 10, completion_tokens: 5 },
         endpoint: "/v1/chat", status: "ok",
@@ -43,6 +49,25 @@ describe("DB Concurrency — atomic safety", () => {
 
     const hist = await db.getUsageHistory({ provider: "openai" });
     expect(hist.length).toBe(N);
+  });
+
+  it("API-key stats never expose raw keys and keep colliding masks distinct", async () => {
+    const keys = ["abcdefgh-secret-A-tail", "abcdefgh-secret-B-tail"];
+    for (let i = 0; i < keys.length; i++) {
+      await db.saveRequestUsage({
+        timestamp: new Date(Date.now() - i * 1000).toISOString(), provider: "openai", model: "gpt-4",
+        apiKey: keys[i], tokens: { prompt_tokens: 2, completion_tokens: 1 }, endpoint: "/v1/chat",
+      });
+    }
+    for (const period of ["24h", "today", "all", "7d"]) {
+      const stats = await db.getUsageStats(period);
+      const entries = Object.values(stats.byApiKey).filter((value) => value.apiKeyMasked);
+      expect(entries).toHaveLength(2);
+      expect(JSON.stringify(stats.byApiKey)).not.toContain(keys[0]);
+      expect(JSON.stringify(stats.byApiKey)).not.toContain(keys[1]);
+      expect(entries.map((value) => value.requests)).toEqual([1, 1]);
+      expect(entries.every((value) => value.lastUsed.includes("T"))).toBe(true);
+    }
   });
 
   it("200 parallel saveRequestDetail → all flushed", async () => {
@@ -70,6 +95,7 @@ describe("DB Concurrency — atomic safety", () => {
     const ops = [];
     for (let i = 0; i < 50; i++) {
       ops.push(db.saveRequestUsage({
+        timestamp: tsFor(1000 + i),
         provider: "anthropic", model: `m-${i % 3}`, connectionId: "c2",
         tokens: { prompt_tokens: 20 }, status: "ok",
       }));
@@ -154,6 +180,7 @@ describe("DB Concurrency — atomic safety", () => {
     const promises = [];
     for (let i = 0; i < N; i++) {
       promises.push(db.saveRequestUsage({
+        timestamp: tsFor(2000 + i),
         provider: "google", model: "gemini-pro", connectionId: "cG",
         tokens: { prompt_tokens: 100, completion_tokens: 50 },
         status: "ok",
@@ -167,5 +194,16 @@ describe("DB Concurrency — atomic safety", () => {
     expect(g.requests).toBe(N);
     expect(g.promptTokens).toBe(N * 100);
     expect(g.completionTokens).toBe(N * 50);
+  });
+
+  it("records an identical write saved twice in parallel only once", async () => {
+    const entry = () => ({
+      timestamp: tsFor(3000), provider: "mistral", model: "dup-model", connectionId: "cD",
+      tokens: { prompt_tokens: 7, completion_tokens: 3 }, status: "ok",
+    });
+    await Promise.all([db.saveRequestUsage(entry()), db.saveRequestUsage(entry())]);
+
+    const stats = await db.getUsageStats("24h");
+    expect(stats.byProvider.mistral.requests).toBe(1);
   });
 });

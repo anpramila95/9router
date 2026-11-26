@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { getCapabilitiesForModel } from "open-sse/providers/capabilities.js";
+import { ALIAS_TO_ID } from "@/shared/constants/providers";
 
 // Module cache: one /api/models fetch shared by every useModelCaps instance.
 let cache = null; // { byFull, byId } | null
@@ -29,22 +30,20 @@ function loadModelCaps() {
       cache = buildMaps(data.models);
       return cache;
     })
-    .catch(() => {
-      // Keep null so a later mount can retry
-      return { byFull: {}, byId: {} };
-    })
+    .catch(() => ({ byFull: {}, byId: {} }))
     .finally(() => { inflight = null; });
   return inflight;
 }
 
 // Resolve caps from a "provider/model" string or a bare model id.
-function resolveCaps(byFull, byId, key) {
-  if (typeof key === "object") key = key.model || key.id;
+export function resolveCaps(byFull, byId, key) {
+  if (key && typeof key === "object") key = key.model || key.id;
   if (!key) return null;
   if (byFull[key]) return byFull[key];
   const bare = key.includes("/") ? key.slice(key.indexOf("/") + 1) : key;
   if (byId[bare]) return byId[bare];
-  const provider = key.includes("/") ? key.slice(0, key.indexOf("/")) : null;
+  const alias = key.includes("/") ? key.slice(0, key.indexOf("/")) : null;
+  const provider = alias ? (ALIAS_TO_ID[alias] || alias) : null;
   const c = getCapabilitiesForModel(provider, bare);
   return {
     vision: c.vision,
@@ -64,12 +63,8 @@ export function useModelCaps() {
     const sync = (maps) => {
       if (alive) { setByFull(maps.byFull); setById(maps.byId); }
     };
-    if (cache) {
-      sync(cache);
-    } else {
-      loadModelCaps().then(sync);
-    }
-    // Custom models change at runtime — drop the shared cache and refetch
+    if (cache) sync(cache);
+    else loadModelCaps().then(sync);
     const invalidate = () => {
       cache = null;
       loadModelCaps().then(sync);
