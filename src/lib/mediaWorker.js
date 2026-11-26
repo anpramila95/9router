@@ -16,7 +16,7 @@ const QUEUE_KEY = "mcp:media:jobs:queue";
 const JOB_PREFIX = "mcp:media:job:";
 const MAX_CONCURRENT_JOBS = 20;
 const PIPELINE_MAX_STEPS = 12;
-const PIPELINE_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+const PIPELINE_MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
 
 function getGpt2ApiBaseUrl() {
   return (
@@ -571,10 +571,7 @@ async function processGptImage2Task(job) {
     `[MediaWorker] Submitting gpt-image-2 task (client_task_id: ${clientTaskId})...`,
   );
 
-  console.log(
-    `[MediaWorker] images: ${images.length ? "edits" : "generations"}`,
-    payload,
-  );
+  console.log(`[MediaWorker] Job ${job.id} image request:`, { model: payload.model, size: payload.size, aspectRatio, quality: payload.quality, imageCount: images.length, promptLength: typeof payload.prompt === "string" ? payload.prompt.length : 0 });
 
   const createRes = await fetch(
     `${gpt2ApiBase}/api/image-tasks/${images.length ? "edits" : "generations"}`,
@@ -585,6 +582,7 @@ async function processGptImage2Task(job) {
     },
   );
 
+  console.log(`[MediaWorker] Job ${job.id} image task create response: HTTP ${createRes.status}`);
   if (!createRes.ok) {
     const errText = await createRes.text().catch(() => "");
     throw new Error(
@@ -615,13 +613,17 @@ async function processGptImage2Task(job) {
         headers,
       });
 
-      if (!pollRes.ok) continue;
+      if (!pollRes.ok) {
+        console.warn(`[MediaWorker] Job ${job.id} image task poll: HTTP ${pollRes.status}`);
+        continue;
+      }
 
       const pollData = await pollRes.json();
       const item = pollData?.items?.[0];
       if (!item) continue;
 
       const status = String(item.status || "").toLowerCase();
+      console.log(`[MediaWorker] Job ${job.id} image task poll status: ${status || "unknown"}`);
       if (status === "success" || status === "completed" || status === "done") {
         let finalData = item.data;
         const m = String(body?.model || "").toLowerCase();
@@ -695,7 +697,7 @@ async function pipelineUrl(raw, base) {
   return url;
 }
 
-export async function pipelineRequest(step, context, timeoutMs = 30000) {
+export async function pipelineRequest(step, context, timeoutMs = 120000) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -708,9 +710,13 @@ export async function pipelineRequest(step, context, timeoutMs = 30000) {
       if (!request.body?.size && ratios[request.body?.aspectRatio]) request.body.size = ratios[request.body.aspectRatio];
       const headers = { "content-type": "application/json" };
       if (context.gatewayToken) headers.authorization = `Bearer ${context.gatewayToken}`;
-      const response = await handleImageGeneration(new Request("http://localhost/v1/images/generations", { method: "POST", headers, body: JSON.stringify(request.body || {}), signal: controller.signal }));
+      const payload = request.body || {};
+      console.log(`[MediaWorker] Job ${context.jobId} gateway image request:`, { model: payload.model, size: payload.size, aspectRatio: payload.aspectRatio, quality: payload.quality, imageCount: Array.isArray(payload.images) ? payload.images.length : 0, promptLength: typeof payload.prompt === "string" ? payload.prompt.length : 0 });
+      const response = await handleImageGeneration(new Request("http://localhost/v1/images/generations", { method: "POST", headers, body: JSON.stringify(payload), signal: controller.signal }));
+      console.log(`[MediaWorker] Job ${context.jobId} gateway image response: HTTP ${response.status}`);
       if (!response.ok) throw new Error("Gateway request failed");
       const text = await response.text();
+      console.log(`[MediaWorker] Job ${context.jobId} gateway response bytes: ${Buffer.byteLength(text)}`);
       if (Buffer.byteLength(text) > PIPELINE_MAX_RESPONSE_BYTES) throw new Error("Pipeline response too large");
       const parsed = JSON.parse(text);
       assertPipelineResultSafe(parsed, [...context.allowedEnv]);
@@ -734,7 +740,8 @@ export async function pipelineRequest(step, context, timeoutMs = 30000) {
     if (result.status < 200 || result.status >= 300) throw new Error(`Pipeline request failed (HTTP ${result.status})`);
     assertPipelineResultSafe(parsed, [...context.allowedEnv]);
     return parsed;
-  } catch {
+  } catch (error) {
+    console.error(`[MediaWorker] Job ${context.jobId || "unknown"} pipeline request failed:`, controller.signal.aborted ? "timeout" : ["Gateway request failed", "Pipeline response too large", "Pipeline redirects rejected", "Invalid gateway request"].includes(error?.message) || /^Pipeline request failed \(HTTP \d+\)$/.test(error?.message || "") ? error.message : "request or response error");
     throw new Error("Media pipeline request failed");
   } finally { clearTimeout(timeout); }
 }
@@ -755,10 +762,13 @@ async function processConfiguredPipeline(job, type) {
   const images = inputBody.images || [];
   const imageUrl = images[0]?.image_url || images[0] || inputBody.image_url || inputBody.image;
   const imageUrls = (Array.isArray(images) && images.length ? images : imageUrl ? [imageUrl] : []).map((image) => typeof image === "string" ? image : image?.image_url).filter(Boolean);
-  const context = { variables: pipeline.variables || {}, inputs: { prompt: inputBody.prompt, images, aspectRatio: inputBody.aspectRatio ?? "16:9", image_url: imageUrl, image_urls: imageUrls }, base_url: getGpt2ApiBaseUrl(), allowedEnv: new Set(envKeys), gatewayToken: job.payload?.token || "" };
+  const context = { jobId: job.id, variables: pipeline.variables || {}, inputs: { prompt: inputBody.prompt, images, aspectRatio: inputBody.aspectRatio ?? "16:9", image_url: imageUrl, image_urls: imageUrls }, base_url: getGpt2ApiBaseUrl(), allowedEnv: new Set(envKeys), gatewayToken: job.payload?.token || "" };
+  console.log(`[MediaWorker] Job ${job.id} selected ${type} pipeline "${pipeline.name || "unnamed"}" (${pipeline.steps.length} steps)`);
   for (const step of pipeline.steps) {
     if (!step || !["async_task", "request"].includes(step.type)) throw new Error("Invalid media pipeline step");
+    console.log(`[MediaWorker] Job ${job.id} pipeline step ${step.id} (${step.type}) started`);
     const initial = await pipelineRequest(step, context);
+    console.log(`[MediaWorker] Job ${job.id} pipeline step ${step.id} completed`);
     let finalResponse = initial;
     if (step.type === "async_task") {
       const taskId = pipelinePath(initial, step.request?.task_id_path);
@@ -772,6 +782,7 @@ async function processConfiguredPipeline(job, type) {
         if (Date.now() >= deadline) break;
         const response = await pipelineRequest({ request: { method: poll.method, url: poll.url, headers: poll.headers, body: poll.body } }, { ...context, [step.id]: { response: initial, task_id: taskId } }, Math.min(30000, deadline - Date.now()));
         const status = pipelinePath(response, poll.conditions?.success_path);
+        console.log(`[MediaWorker] Job ${job.id} pipeline step ${step.id} poll status:`, status);
         if (status === poll.conditions?.success_value) { finalResponse = response; break; }
         if ((poll.conditions?.failed_value || []).includes(status)) throw new Error("Media pipeline task failed");
         finalResponse = response;
